@@ -53,5 +53,23 @@ Per the Phase 0 plan:
   property-manager Facebook/LinkedIn groups.
 - Directly message 30–50 small property managers (2–20 units) asking if
   they'd pay for this.
-- Gate to move to Phase 1 (dataset + fine-tuning): 15–20 waitlist signups,
-  or 5+ verbal "I'd pay" commitments, within ~2 weeks.
+- Gate to move forward with fine-tuning: 15–20 waitlist signups, or 5+
+  verbal "I'd pay" commitments, within ~2 weeks.
+
+## Phase 1 — training dataset
+
+Built in parallel with Phase 0 deployment, so it's ready the moment the
+validation gate is passed. See [`dataset/README.md`](dataset/README.md)
+for the schema, taxonomy, and honest limitations.
+
+```bash
+python3 scripts/generate_dataset.py --train 2000 --eval 150   # (re)generate
+python3 scripts/validate_dataset.py                            # QA: schema, dupes, leakage, distribution
+```
+
+Current dataset: 2,000 train / 150 eval rows, 8 categories × 4 urgency
+levels, ~12% multi-issue messages, zero schema errors or duplicates.
+Fully synthetic (templated, not LLM-generated) — spot-check
+`dataset/README.md`'s limitations section, and start folding real tenant
+messages into `dataset/real_examples.jsonl` as Phase 0 outreach turns
+them up, before treating this as fine-tune-ready.
