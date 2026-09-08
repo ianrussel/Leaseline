@@ -1,0 +1,9 @@
+{
+  "name": "faultline-landing",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Faultline Phase 0 landing page — static site, no build step.",
+  "scripts": {
+    "dev": "npx --yes serve . -l 3000"
+  }
+}

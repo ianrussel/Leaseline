@@ -5,20 +5,25 @@ for small property managers. Static single-page site, no build step.
 
 See the full venture plan: `imon-my-48-years-staged-frost.md` in this repo.
 
-## Before you share the link
+## Run it locally
 
-The waitlist form posts to [Formspree](https://formspree.io) (free tier).
-It's currently pointed at a placeholder endpoint, so submissions won't be
-captured until you:
+Preview it before every deploy:
 
-1. Create a free account at formspree.io and add a new form.
-2. Copy the endpoint it gives you (`https://formspree.io/f/xxxxxxxx`).
-3. Open `index.html`, find `FORM_ENDPOINT` near the bottom, and paste your
-   real endpoint in.
-4. Redeploy (`vercel --prod`).
+```bash
+npm run dev
+```
 
-Until then, a submission shows a graceful fallback asking people to email
-you directly — nothing breaks, it just won't auto-collect.
+Opens at http://localhost:3000 — edit `index.html`, save, refresh the tab
+to see the change (no build step, no restart needed).
+
+## Waitlist submissions
+
+The form posts to [Formspree](https://formspree.io) (free tier) and
+arrives by email — manage or export entries at
+https://formspree.io/forms. The endpoint is wired in via `FORM_ENDPOINT`
+near the bottom of `index.html`; if you ever need to point it at a
+different form, that's the one line to change, then redeploy
+(`vercel --prod`).
 
 ## Deploy to Vercel
 
