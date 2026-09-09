@@ -67,9 +67,52 @@ python3 scripts/generate_dataset.py --train 2000 --eval 150   # (re)generate
 python3 scripts/validate_dataset.py                            # QA: schema, dupes, leakage, distribution
 ```
 
-Current dataset: 2,000 train / 150 eval rows, 8 categories × 4 urgency
-levels, ~12% multi-issue messages, zero schema errors or duplicates.
-Fully synthetic (templated, not LLM-generated) — spot-check
-`dataset/README.md`'s limitations section, and start folding real tenant
-messages into `dataset/real_examples.jsonl` as Phase 0 outreach turns
-them up, before treating this as fine-tune-ready.
+Current dataset: 2,000 template train rows, 150 eval rows, 8 categories ×
+4 urgency levels, ~12% multi-issue messages, zero schema errors or
+duplicates. A local-LLM diversification pass (`scripts/diversify_dataset.py`,
+paraphrases text/replies while freezing the template's category/urgency
+labels as ground truth) completed on the eval set and on 860/2,000 train
+rows before being interrupted — `dataset/train.diverse.jsonl` currently
+has 860 rows, `dataset/eval.diverse.jsonl` has all 150. Re-run the script
+to finish the remaining rows before a from-scratch fine-tune; the
+existing 860 are real, usable, already-QA'd training data as-is.
+
+## Chat widget (customer-facing FAQ bot)
+
+A floating "Ask about Faultline" chat widget on the landing page answers
+prospect questions grounded in `docs/knowledge-base.md` — see that file
+for the full content and its own "keep this updated" note.
+
+- **Backend**: `api/chat.js`, a zero-config Vercel serverless function
+  (any file under `api/` becomes an endpoint automatically — no
+  framework, no build step). It stuffs the whole knowledge base into the
+  system prompt (small enough that a vector DB would be overkill) and
+  calls the Claude API, with the knowledge base cached
+  (`cache_control: ephemeral`) so repeat questions are cheap.
+- **Required setup**: create an API key at
+  [console.anthropic.com](https://console.anthropic.com/), then in the
+  Vercel project add an environment variable
+  `ANTHROPIC_API_KEY` = that key (Project → Settings → Environment
+  Variables), then redeploy. Without it, the widget shows a clear "not
+  configured yet" error instead of failing silently.
+- **Local testing**: `npm run dev` (via `serve`) is static-only and does
+  **not** run `api/chat.js` — the widget will show a connection error
+  locally. Use `npx vercel dev` instead to test the full chat flow
+  before deploying, or just verify after `vercel --prod`.
+- **Known gap**: no rate limiting yet (would need a KV store like Upstash
+  Redis — a separate account, not set up). Cost is bounded per-message
+  (512 max output tokens, low reasoning effort, 2000-character input
+  cap) but not per-visitor. Fine for beta-stage traffic; revisit if this
+  ever gets meaningfully popular before real usage is proven.
+
+## Phase 2 — fine-tuning
+
+Runs on the existing `ait-lab` fine-tuning pipeline (config-driven,
+RunPod-based), not custom code in this repo — see
+`ait-lab/ai_training/trainings/task-faultline-triage/README.md` for the
+full task writeup, the GPU-sizing rationale (a rented 16GB+ card is
+plenty; the local machine's 4GB GPU doesn't clear even that), and a
+ready-to-run RunPod notebook. Data prep (CPU-only) is already done and
+committed there; `pipeline.py` (the actual GPU training run) is a manual
+step — it costs real rented-GPU money and needs a human review of
+`gold.jsonl` first, by that project's own design.

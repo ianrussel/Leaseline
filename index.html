@@ -444,6 +444,157 @@
   .footer-row a { color: var(--text-muted); }
 
   [hidden] { display: none !important; }
+
+  /* ---------- chat widget ---------- */
+  .chat-launcher {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border: none;
+    padding: 14px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(23,36,43,0.18);
+  }
+  .chat-launcher:hover { background: var(--accent-hover); }
+  .chat-launcher .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--urgency-low-bg, #5a6e8c);
+    flex: none;
+  }
+
+  .chat-panel {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 50;
+    width: min(380px, calc(100vw - 32px));
+    height: min(520px, calc(100vh - 48px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 40px rgba(23,36,43,0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .chat-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .chat-panel-head .title {
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+  }
+  .chat-panel-head .sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .chat-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .chat-close:hover { color: var(--text); }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-msg {
+    max-width: 85%;
+    padding: 10px 14px;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  .chat-msg.bot {
+    align-self: flex-start;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+  .chat-msg.error {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px dashed var(--urgency-emergency-bg, #b23a2a);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .chat-msg.pending {
+    align-self: flex-start;
+    color: var(--text-muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .chat-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .chat-input-row input {
+    flex: 1;
+    font-family: 'Source Serif 4', serif;
+    font-size: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+  }
+  .chat-input-row input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chat-input-row button {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0 16px;
+    cursor: pointer;
+  }
+  .chat-input-row button:hover:not(:disabled) { background: var(--accent-hover); }
+  .chat-input-row button:disabled { opacity: 0.5; cursor: default; }
+
+  @media (max-width: 480px) {
+    .chat-panel { right: 16px; bottom: 16px; }
+    .chat-launcher { right: 16px; bottom: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -674,7 +825,30 @@
   </div>
 </footer>
 
+<button type="button" class="chat-launcher" id="chatLauncher" aria-haspopup="dialog" aria-expanded="false">
+  <span class="dot"></span>
+  Ask about Faultline
+</button>
+
+<div class="chat-panel" id="chatPanel" role="dialog" aria-label="Faultline chat assistant" hidden>
+  <div class="chat-panel-head">
+    <div>
+      <div class="title">Ask Faultline</div>
+      <div class="sub">Usually replies in a few seconds</div>
+    </div>
+    <button type="button" class="chat-close" id="chatClose" aria-label="Close chat">&times;</button>
+  </div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="chat-msg bot">Hi! I'm here to answer questions about Faultline - pricing, how the triage works, what's available today vs. on the roadmap, anything like that. What do you want to know?</div>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chatInput" placeholder="Ask a question..." autocomplete="off" maxlength="2000">
+    <button type="button" id="chatSend">Send</button>
+  </div>
+</div>
+
 <script>
+  // ── Setup note ────────────────────────────────────────────────────────
   // ── Setup note ────────────────────────────────────────────────────────
   // Submissions post to this project's Formspree form (free tier) and
   // arrive by email. Manage/export them at https://formspree.io/forms
@@ -714,6 +888,83 @@
       status.className = 'form-status err';
     });
   });
+</script>
+
+<script>
+  // ── Chat widget ───────────────────────────────────────────────────────
+  // Posts to /api/chat (a Vercel serverless function - see api/chat.js).
+  // That function needs an ANTHROPIC_API_KEY set in the Vercel project's
+  // environment variables to actually answer; until then this shows the
+  // error state below rather than failing silently.
+  (function () {
+    var launcher = document.getElementById('chatLauncher');
+    var panel = document.getElementById('chatPanel');
+    var closeBtn = document.getElementById('chatClose');
+    var messages = document.getElementById('chatMessages');
+    var input = document.getElementById('chatInput');
+    var sendBtn = document.getElementById('chatSend');
+    var busy = false;
+
+    function open() {
+      panel.hidden = false;
+      launcher.setAttribute('aria-expanded', 'true');
+      launcher.hidden = true;
+      input.focus();
+    }
+    function close() {
+      panel.hidden = true;
+      launcher.setAttribute('aria-expanded', 'false');
+      launcher.hidden = false;
+    }
+    launcher.addEventListener('click', open);
+    closeBtn.addEventListener('click', close);
+
+    function addMessage(text, cls) {
+      var el = document.createElement('div');
+      el.className = 'chat-msg ' + cls;
+      el.textContent = text;
+      messages.appendChild(el);
+      messages.scrollTop = messages.scrollHeight;
+      return el;
+    }
+
+    function send() {
+      var text = input.value.trim();
+      if (!text || busy) return;
+      busy = true;
+      sendBtn.disabled = true;
+      addMessage(text, 'user');
+      input.value = '';
+      var pending = addMessage('Thinking…', 'pending');
+
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      }).then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      }).then(function (result) {
+        pending.remove();
+        if (result.ok) {
+          addMessage(result.data.reply, 'bot');
+        } else {
+          addMessage((result.data && result.data.error) || 'Something went wrong.', 'error');
+        }
+      }).catch(function () {
+        pending.remove();
+        addMessage('Could not reach the chat assistant - email ianrussel537@gmail.com instead.', 'error');
+      }).finally(function () {
+        busy = false;
+        sendBtn.disabled = false;
+        input.focus();
+      });
+    }
+
+    sendBtn.addEventListener('click', send);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') send();
+    });
+  })();
 </script>
 </body>
 </html>
