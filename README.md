@@ -5,16 +5,45 @@ for small property managers. Static single-page site, no build step.
 
 See the full venture plan: `imon-my-48-years-staged-frost.md` in this repo.
 
-## Run it locally
+## Environment variables
 
-Preview it before every deploy:
+One required variable, read by `api/chat.js`:
+
+| Variable | Required | Where it's used | Get it from |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes, for the chat widget to answer | `api/chat.js` (`new Anthropic()` reads it automatically — never hardcode a key in code) | [console.anthropic.com](https://console.anthropic.com/) → API Keys → Create Key |
+
+**Local:** copy `.env.example` to `.env` and fill in the real key:
 
 ```bash
-npm run dev
+cp .env.example .env
 ```
 
-Opens at http://localhost:3000 — edit `index.html`, save, refresh the tab
-to see the change (no build step, no restart needed).
+`.env` is gitignored — it never gets committed. `npx vercel dev` (see
+below) loads it automatically; nothing else needs to source it.
+
+**Deployed on Vercel:** `.env` is local-only and is **not** picked up by
+a deploy — the same key has to be added separately in the dashboard:
+**Project → Settings → Environment Variables** → add `ANTHROPIC_API_KEY`
+→ check all three environments (Production/Preview/Development) → save
+→ redeploy (env var changes only apply to the *next* deploy). Without
+it, the chat widget shows a clear "not configured yet" error instead of
+failing silently — that error means this step hasn't been done yet.
+
+## Run it locally
+
+Two different local servers, for two different things:
+
+```bash
+npm run dev       # static file server (serve) - fast, but api/chat.js does NOT run
+npx vercel dev     # full local Vercel environment - runs api/chat.js too, reads .env
+```
+
+Use `npm run dev` (http://localhost:3000) for everyday landing-page
+edits — no build step, refresh to see changes. Use `npx vercel dev` when
+testing anything that touches the chat widget, since `npm run dev`'s
+static server can't execute the serverless function at all (the widget
+will show a connection error under it even with a valid key).
 
 ## Waitlist submissions
 
@@ -89,16 +118,10 @@ for the full content and its own "keep this updated" note.
   system prompt (small enough that a vector DB would be overkill) and
   calls the Claude API, with the knowledge base cached
   (`cache_control: ephemeral`) so repeat questions are cheap.
-- **Required setup**: create an API key at
-  [console.anthropic.com](https://console.anthropic.com/), then in the
-  Vercel project add an environment variable
-  `ANTHROPIC_API_KEY` = that key (Project → Settings → Environment
-  Variables), then redeploy. Without it, the widget shows a clear "not
-  configured yet" error instead of failing silently.
-- **Local testing**: `npm run dev` (via `serve`) is static-only and does
-  **not** run `api/chat.js` — the widget will show a connection error
-  locally. Use `npx vercel dev` instead to test the full chat flow
-  before deploying, or just verify after `vercel --prod`.
+- **Setup + local testing**: see "Environment variables" and "Run it
+  locally" above — `ANTHROPIC_API_KEY` in both `.env` (local) and
+  Vercel's dashboard (deployed), and `npx vercel dev` to test it before
+  shipping.
 - **Known gap**: no rate limiting yet (would need a KV store like Upstash
   Redis — a separate account, not set up). Cost is bounded per-message
   (512 max output tokens, low reasoning effort, 2000-character input
