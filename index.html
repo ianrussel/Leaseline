@@ -189,7 +189,10 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
-    align-items: stretch;
+    align-items: start;
+  }
+  .demo-grid + .demo-grid {
+    margin-top: 20px;
   }
   @media (max-width: 760px) {
     .demo-grid { grid-template-columns: 1fr; }
@@ -488,6 +491,66 @@
         <div class="draft-reply">
           <em>Drafted reply</em>
           Hi! Thanks for flagging this - a leak near the dishwasher is a priority, so we're dispatching a plumber today. We've also logged the hallway light for the same visit. We'll confirm the appointment window shortly.
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-grid">
+      <div class="panel">
+        <div class="panel-label"><span>What lands in your inbox</span><span>7:15 AM</span></div>
+        <div class="msg-bubble">unit 9C here the stove smells like gas when i turn the burner on not sure if its safe to use</div>
+      </div>
+      <div class="panel">
+        <div class="ticket-head"><span>TICKET <strong>#FL-10483</strong></span><span>Unit 9C</span></div>
+        <div class="issue-row">
+          <div class="badges">
+            <span class="badge badge-cat">Appliance</span>
+            <span class="badge badge-emergency">EMERGENCY</span>
+          </div>
+        </div>
+        <div class="draft-reply">
+          <em>Drafted reply</em>
+          Thanks for flagging this right away - a gas smell is urgent, so we're dispatching someone today. Please don't use that burner until then, and if the smell gets stronger, leave the unit and call the gas company's emergency line.
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-grid">
+      <div class="panel">
+        <div class="panel-label"><span>What lands in your inbox</span><span>6:03 PM</span></div>
+        <div class="msg-bubble">hi its unit 12C we've seen a few roaches in the kitchen the last couple nights nothing crazy but wanted to flag it</div>
+      </div>
+      <div class="panel">
+        <div class="ticket-head"><span>TICKET <strong>#FL-10484</strong></span><span>Unit 12C</span></div>
+        <div class="issue-row">
+          <div class="badges">
+            <span class="badge badge-cat">Pest</span>
+            <span class="badge badge-medium">MEDIUM</span>
+          </div>
+        </div>
+        <div class="draft-reply">
+          <em>Drafted reply</em>
+          Thanks for the heads up - we've logged this and will have pest control take a look in the next few days.
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-grid">
+      <div class="panel">
+        <div class="panel-label"><span>What lands in your inbox</span><span>9:20 AM</span></div>
+        <div class="msg-bubble">hey so the neighbors upstairs have been pretty loud every night this week just wanted to mention it whenever you get a chance</div>
+      </div>
+      <div class="panel">
+        <div class="ticket-head"><span>TICKET <strong>#FL-10485</strong></span><span>Unit 3A</span></div>
+        <div class="issue-row">
+          <div class="badges">
+            <span class="badge badge-cat">Noise</span>
+            <span class="badge badge-low">LOW</span>
+          </div>
+        </div>
+        <div class="draft-reply">
+          <em>Drafted reply</em>
+          Thanks for letting us know - we've added this to the schedule and will follow up with the unit above during our next round of check-ins.
         </div>
       </div>
     </div>
