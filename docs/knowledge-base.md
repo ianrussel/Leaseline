@@ -1,16 +1,17 @@
-# Faultline — Knowledge Base
+# Leaseline — Knowledge Base
 
 *Internal source document for a customer-facing RAG chatbot. Update this
 file whenever the product, pricing, or roadmap changes — a chatbot built
-on it is only as accurate as what's written here. "Faultline" is a
-working name pending a possible rename (Leaseline is the front-runner);
-find-and-replace this doc when that's decided.*
+on it is only as accurate as what's written here. Renamed from
+"Faultline" (collided with an existing property-maintenance company,
+FaultFixers) — if you spot a stray "Faultline" anywhere in this project,
+it's a miss from that rename, not an intentional second name.*
 
 ---
 
-## 1. What is Faultline?
+## 1. What is Leaseline?
 
-Faultline is an AI maintenance-triage tool for small property managers
+Leaseline is an AI maintenance-triage tool for small property managers
 and landlords. It reads incoming tenant maintenance requests — texts,
 emails, whatever's already landing in an inbox — and automatically:
 
@@ -28,7 +29,7 @@ requests by hand — reading texts/emails, deciding what's urgent, and
 typing replies themselves.
 
 **Who it's not for:** large enterprise property management firms with
-existing dedicated maintenance-coordination software and staff — Faultline
+existing dedicated maintenance-coordination software and staff — Leaseline
 is built for the smaller operators those tools tend to ignore.
 
 **Current stage:** in active development, not yet open to beta signups.
@@ -45,9 +46,9 @@ early access at this stage.
 
 **Step 1 — Forward it in.** Paste a tenant's message, forward the email,
 or (in a future version) connect an inbox — whatever's already landing
-gets routed into Faultline as-is. No special formatting required.
+gets routed into Leaseline as-is. No special formatting required.
 
-**Step 2 — Triaged in about 2 seconds.** Faultline returns a category,
+**Step 2 — Triaged in about 2 seconds.** Leaseline returns a category,
 an urgency level, and a drafted reply. If a single message reports more
 than one problem, it splits them into separate, individually-triaged
 sub-issues instead of forcing everything into one label.
@@ -60,7 +61,7 @@ is sent automatically without a person's action.
 
 ## 3. Category taxonomy
 
-Faultline classifies each reported issue into one of eight categories:
+Leaseline classifies each reported issue into one of eight categories:
 
 | Category | Covers |
 |---|---|
@@ -74,19 +75,19 @@ Faultline classifies each reported issue into one of eight categories:
 | General | Anything that doesn't fit the above — mailboxes, gates, intercoms, etc. |
 
 A single tenant message can contain issues from more than one category
-(e.g. a leak *and* a broken light) — Faultline reports each one
+(e.g. a leak *and* a broken light) — Leaseline reports each one
 separately rather than picking just one label for the whole message.
 
 ---
 
 ## 4. Urgency levels
 
-Faultline assigns one of four urgency levels **per issue**, not per
+Leaseline assigns one of four urgency levels **per issue**, not per
 message:
 
 - **Emergency** — immediate safety or property-damage risk: gas smells,
   active flooding/burst pipes, no heat in freezing weather, sparking
-  outlets, broken exterior locks. Faultline recommends same-day
+  outlets, broken exterior locks. Leaseline recommends same-day
   dispatch.
 - **High** — significant but not immediately dangerous: no hot water,
   a fridge that's stopped cooling, a growing ceiling water stain.
@@ -142,7 +143,7 @@ triaged — no integration or software installation required to try it.
 
 ## 7. Data handling and privacy
 
-Faultline processes the text of maintenance messages submitted to it
+Leaseline processes the text of maintenance messages submitted to it
 (by paste, forward, or future inbox connection) in order to generate the
 category, urgency, and draft reply. That text, along with the resulting
 tickets, is stored so the property manager can review their history.
@@ -167,7 +168,7 @@ tickets, is stored so the property manager can review their history.
 ## 8. Integrations and roadmap
 
 **Available today:** paste-in or forward-in of a maintenance message
-through the Faultline dashboard.
+through the Leaseline dashboard.
 
 **Not available yet — do not claim these as current features:**
 
@@ -213,11 +214,11 @@ Because this is a solo-developer beta project, support is not staffed
 ## 11. Frequently asked questions
 
 **Is this a real, existing company?**
-Faultline is a real product being actively built by an independent
+Leaseline is a real product being actively built by an independent
 software developer — currently in development, not yet in beta. It is
 not a large company or a funded startup with a team.
 
-**Does Faultline replace my property management software?**
+**Does Leaseline replace my property management software?**
 No. It's a focused tool for one job — triaging maintenance requests and
 drafting replies. It doesn't handle rent collection, leasing, accounting,
 or the other things a full property management platform does.
@@ -257,7 +258,7 @@ the message (e.g. "gas smell" reads as Emergency, "hallway light's been
 out" reads as Low), and the property manager can always override it.
 
 **Can one message report more than one issue?**
-Yes — Faultline splits a message that reports multiple problems into
+Yes — Leaseline splits a message that reports multiple problems into
 separate tickets, each triaged on its own (see Section 2 and Section 3).
 
 **How do I manage more than one property?**

@@ -1,6 +1,6 @@
-# Faultline maintenance-triage dataset (v0, synthetic)
+# Leaseline maintenance-triage dataset (v0, synthetic)
 
-Training data for fine-tuning Faultline's category + urgency + draft-reply
+Training data for fine-tuning Leaseline's category + urgency + draft-reply
 model. This is a **first-pass, fully synthetic** dataset — see
 [Limitations](#limitations) before fine-tuning on it as-is.
 
@@ -87,8 +87,8 @@ signal, though none are property-management-specific:
 ```bash
 pip install -U huggingface_hub
 huggingface-cli login   # needs a free HF account + access token
-huggingface-cli repo create faultline-triage-v0 --type dataset --private
-huggingface-cli upload faultline-triage-v0 dataset/ . --repo-type dataset
+huggingface-cli repo create leaseline-triage-v0 --type dataset --private
+huggingface-cli upload leaseline-triage-v0 dataset/ . --repo-type dataset
 ```
 
 Keep it **private** until the taxonomy and reply tone are locked in —

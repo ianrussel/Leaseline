@@ -27,7 +27,7 @@ async function logChatToEmail(question, answer) {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        _subject: "Faultline chat: new question",
+        _subject: "Leaseline chat: new question", // matches Formspree submission subject shown in your inbox
         question,
         answer,
         timestamp: new Date().toISOString(),
@@ -45,22 +45,22 @@ const KNOWLEDGE_BASE = fs.readFileSync(
   "utf-8",
 );
 
-const SYSTEM_PROMPT = `You are the chat assistant on Faultline's beta landing page, answering \
+const SYSTEM_PROMPT = `You are the chat assistant on Leaseline's beta landing page, answering \
 questions from prospective customers (small property managers and landlords).
 
-Answer ONLY using the knowledge base below - it is the single source of truth for what Faultline \
+Answer ONLY using the knowledge base below - it is the single source of truth for what Leaseline \
 is, does, costs, and doesn't do yet. If something isn't covered in it, say plainly that you don't \
 know and point them to ianrussel537@gmail.com rather than guessing or inventing an answer. Never \
 claim a feature, integration, or certification that isn't listed as available in the knowledge base.
 
-If asked something with nothing to do with Faultline (general trivia, coding help, unrelated \
+If asked something with nothing to do with Leaseline (general trivia, coding help, unrelated \
 requests), politely decline and redirect to what you can actually help with: questions about \
-Faultline.
+Leaseline.
 
 Keep answers short - 2 to 4 sentences, plain conversational text, no markdown formatting, no \
 headers or bullet lists unless genuinely listing multiple short items.
 
-=== FAULTLINE KNOWLEDGE BASE ===
+=== LEASELINE KNOWLEDGE BASE ===
 ${KNOWLEDGE_BASE}`;
 
 export default async function handler(req, res) {

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Synthetic training-data generator for Faultline's maintenance-triage model.
+Synthetic training-data generator for Leaseline's maintenance-triage model.
 
 Produces JSONL rows of the form:
   {
     "input": "<raw tenant message, as it would land in an inbox>",
     "issues": [{"category": "Plumbing", "urgency": "High"}, ...],
-    "draft_response": "<the reply Faultline should draft>"
+    "draft_response": "<the reply Leaseline should draft>"
   }
 
 Why templated instead of calling an LLM: it's $0, instant, deterministic

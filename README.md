@@ -1,6 +1,6 @@
-# Faultline - Phase 0 Landing Page
+# Leaseline - Phase 0 Landing Page
 
-Validation landing page for "Faultline," an AI maintenance-triage micro-SaaS
+Validation landing page for "Leaseline," an AI maintenance-triage micro-SaaS
 for small property managers. Static single-page site, no build step.
 
 See the full venture plan: `imon-my-48-years-staged-frost.md` in this repo.
@@ -109,7 +109,7 @@ existing 860 are real, usable, already-QA'd training data as-is.
 
 ## Chat widget (customer-facing FAQ bot)
 
-A floating "Ask about Faultline" chat widget on the landing page answers
+A floating "Ask about Leaseline" chat widget on the landing page answers
 prospect questions grounded in `docs/knowledge-base.md` - see that file
 for the full content and its own "keep this updated" note.
 
@@ -139,7 +139,7 @@ for the full content and its own "keep this updated" note.
 
 Runs on the existing `ait-lab` fine-tuning pipeline (config-driven,
 RunPod-based), not custom code in this repo - see
-`ait-lab/ai_training/trainings/task-faultline-triage/README.md` for the
+`ait-lab/ai_training/trainings/task-leaseline-triage/README.md` for the
 full task writeup, the GPU-sizing rationale (a rented 16GB+ card is
 plenty; the local machine's 4GB GPU doesn't clear even that), and a
 ready-to-run RunPod notebook. Data prep (CPU-only) is already done and

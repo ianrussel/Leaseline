@@ -1,39 +1,43 @@
-🚀 Big news — I'm building something new!
+🚀 Big news - I'm building something new!
 
-For the past few weeks I've been heads-down on Faultline, an AI-powered
+For the past few weeks I've been heads-down on Leaseline, an AI-powered
 maintenance triage assistant for small property managers and landlords.
 
 Here's the problem it solves: property managers get flooded with tenant
-texts and emails about maintenance stuff — a leak, a broken light, a gas
-smell — and have to figure out by hand what's actually urgent and reply
-to each one. Faultline reads the message the moment it lands, tags what's
-wrong and how urgent it is, and hands back a ready-to-send reply — all in
+texts and emails about maintenance stuff - a leak, a broken light, a gas
+smell - and have to figure out by hand what's actually urgent and reply
+to each one. Leaseline reads the message the moment it lands, tags what's
+wrong and how urgent it is, and hands back a ready-to-send reply - all in
 about 2 seconds. (Check out the short clip below to see it in action.)
 
 Under the hood, I built a custom training dataset and I'm fine-tuning an
-open-source AI model on it (Hugging Face + QLoRA) — so it's not just a
+open-source AI model on it (Hugging Face + QLoRA) - so it's not just a
 generic ChatGPT wrapper, it's actually trained for this one job.
 
-A bit about me: I'm a self-taught full-stack developer — started at 34,
-now working in AI model fine-tuning — and this is my first real shot at
+A bit about me: I'm a self-taught full-stack developer - started at 34,
+now working in AI model fine-tuning - and this is my first real shot at
 turning that into a product people can use day to day.
 
-It's in beta right now — free to join, no credit card needed. If you're
-a landlord, property manager, or know someone who is, I'd love to get
-them in and hear what they think!
+It's still in active development right now - I'm building and testing
+the triage engine behind the scenes. If you're a landlord, property
+manager, or know someone who is, I'd love to hear what you think of the
+idea, and I'll let you know personally the moment early access opens.
 
-👉 Beta signup link is in the comments.
+👉 Want to be notified when that happens? Drop a comment or DM me.
 
 #AI #PropTech #BuildInPublic #IndieHacker #PropertyManagement #SelfTaughtDev
 
 ---
 NOTES FOR YOU (delete before posting):
-- "Faultline" is a working name — Leaseline is the front-runner for a
-  rename (FaultFixers already exists in this exact niche). Swap the name
-  above if you decide before posting.
-- Putting the beta link in the first comment instead of the post itself
-  is deliberate — Facebook's feed algorithm generally shows outbound-link
-  posts to fewer people than link-free posts. Post this, then immediately
-  comment your own landing page link on it.
-- Attach beta-announcement.mp4 (same folder) as the post's video — upload
-  it as a native Facebook video, not a link, so it autoplays in-feed.
+- Name is finalized as Leaseline (renamed from the earlier "Faultline"
+  draft - FaultFixers already existed in that exact niche).
+- This version matches the site's current real status: in development,
+  waitlist form paused (not "join the beta now"). If you reopen the
+  beta signup later, swap the "still in active development" paragraph
+  and the CTA back to a direct signup link, and put that link in the
+  first comment rather than the post itself - Facebook's feed algorithm
+  generally shows outbound-link posts to fewer people than link-free
+  ones.
+- Attach leaseline-announcement.mp4 (same folder) as the post's video -
+  upload it as a native Facebook video, not a link, so it autoplays
+  in-feed.
