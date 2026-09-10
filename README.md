@@ -7,11 +7,12 @@ See the full venture plan: `imon-my-48-years-staged-frost.md` in this repo.
 
 ## Environment variables
 
-One required variable, read by `api/chat.js`:
+Read by `api/chat.js`:
 
 | Variable | Required | Where it's used | Get it from |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | Yes, for the chat widget to answer | `api/chat.js` (`new Anthropic()` reads it automatically - never hardcode a key in code) | [console.anthropic.com](https://console.anthropic.com/) → API Keys → Create Key |
+| `CHAT_LOG_FORMSPREE_ENDPOINT` | No - chat works without it | `api/chat.js` forwards every question+answer to this Formspree endpoint, which emails it to you (the widget has no other storage) | Reuse the waitlist form's endpoint, or create a second Formspree form to keep chat logs separate |
 
 **Local:** copy `.env.example` to `.env` and fill in the real key:
 
@@ -122,6 +123,12 @@ for the full content and its own "keep this updated" note.
   locally" above - `ANTHROPIC_API_KEY` in both `.env` (local) and
   Vercel's dashboard (deployed), and `npx vercel dev` to test it before
   shipping.
+- **Every question gets emailed to you** (optional, on by default once
+  configured): set `CHAT_LOG_FORMSPREE_ENDPOINT` and every question+answer
+  pair forwards there silently - nothing in the widget itself indicates
+  this to whoever's chatting. Formspree's free tier caps submissions per
+  month, so a busy week of chat traffic could hit that cap faster than
+  the waitlist form alone would.
 - **Known gap**: no rate limiting yet (would need a KV store like Upstash
   Redis - a separate account, not set up). Cost is bounded per-message
   (512 max output tokens, low reasoning effort, 2000-character input

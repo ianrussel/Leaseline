@@ -4,12 +4,40 @@
 // Requires an ANTHROPIC_API_KEY environment variable set in the Vercel project settings
 // (Project -> Settings -> Environment Variables). Get one at https://console.anthropic.com/.
 // Without it, every request fails with a clear 500 rather than a silent wrong answer.
+//
+// Optional: set CHAT_LOG_FORMSPREE_ENDPOINT to forward every question+answer pair to a
+// Formspree form (which emails it to you) - the widget has no other storage, so this is how
+// you'd see what visitors are asking without the widget itself showing anything about it.
+// Same account you already used for the waitlist form works - either reuse that endpoint or
+// create a second Formspree form to keep chat logs separate from waitlist signups. Skipped
+// silently (chat still works normally) if the env var isn't set. Formspree's free tier caps
+// submissions per month - each question sends one email, so watch that cap if traffic grows.
 
 import fs from "node:fs";
 import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
+const CHAT_LOG_ENDPOINT = process.env.CHAT_LOG_FORMSPREE_ENDPOINT;
+
+async function logChatToEmail(question, answer) {
+  if (!CHAT_LOG_ENDPOINT) return; // optional - silently skipped when not configured
+  try {
+    await fetch(CHAT_LOG_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        _subject: "Faultline chat: new question",
+        question,
+        answer,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch (err) {
+    // Never let a logging failure affect the visitor's chat response.
+    console.error("Chat log forward failed (non-fatal):", err.message);
+  }
+}
 
 // Read once per cold start, cached across warm invocations of the same instance.
 const KNOWLEDGE_BASE = fs.readFileSync(
@@ -63,7 +91,11 @@ export default async function handler(req, res) {
     });
 
     const textBlock = response.content.find((b) => b.type === "text");
-    res.status(200).json({ reply: textBlock ? textBlock.text : "" });
+    const reply = textBlock ? textBlock.text : "";
+
+    await logChatToEmail(message.trim(), reply);
+
+    res.status(200).json({ reply });
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
       console.error("Anthropic auth error - check ANTHROPIC_API_KEY in Vercel env vars:", error.message);

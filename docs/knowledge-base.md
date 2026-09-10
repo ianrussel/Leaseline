@@ -31,8 +31,13 @@ typing replies themselves.
 existing dedicated maintenance-coordination software and staff — Faultline
 is built for the smaller operators those tools tend to ignore.
 
-**Current stage:** public beta. It is an independent, solo-developer-built
-project, not a funded company with a large team.
+**Current stage:** in active development, not yet open to beta signups.
+The AI triage engine is still being built and tested; there is no live
+waitlist form or product access right now. It is an independent,
+solo-developer-built project, not a funded company with a large team.
+Anyone interested in being notified when beta access opens should email
+the address in Section 10 — that's the only way to get on the radar for
+early access at this stage.
 
 ---
 
@@ -100,31 +105,38 @@ sending or dispatching.
 
 ## 5. Pricing
 
-**During the beta:** free. No credit card required to join.
+**Right now:** nothing to pay — there's no live product or beta access
+to buy yet (see Section 1). The pricing below is the plan for once beta
+opens, not something available today.
+
+**During the beta (once it opens):** free. No credit card required to
+join.
 
 **Planned pricing after beta** (subject to change as the product
 develops — always quote current pricing from the live site, not this
 document, if there's ever a mismatch): plans starting at $29/month for
 up to 100 triaged tickets, with no per-unit fees and no setup cost.
 
-**Beta users:** anyone who joins during the beta period locks in that
-introductory ("founder") pricing for as long as they stay subscribed
-after the beta ends.
+**Beta users:** anyone who joins during the beta period will lock in
+that introductory ("founder") pricing for as long as they stay
+subscribed after the beta ends.
 
-There is no long-term contract. Cancel anytime; there's no cancellation
-fee structure yet published because the product hasn't left beta.
+There is no long-term contract planned. Cancellation terms beyond that
+haven't been formally published yet since the product hasn't launched.
 
 ---
 
 ## 6. Getting started
 
-1. Join the beta waitlist on the landing page (name, email, roughly how
-   many units you manage, and how you currently handle maintenance
-   requests).
-2. Beta requests are reviewed in the order they arrive; expect an email
-   within a few days when a spot opens, not instant access.
-3. Once in, paste or forward a maintenance message to see it triaged —
-   no integration or software installation is required to try it.
+There's no signup flow to walk through right now — the product is still
+in development and the waitlist form on the landing page is currently
+off (replaced with an "in development" status message). The only
+available step today is emailing the address in Section 10 to ask to be
+notified when beta access opens. Once beta does open, the plan is: join
+via a short form (name, email, roughly how many units managed, and how
+maintenance requests are currently handled), requests reviewed in the
+order they arrive, then paste or forward a maintenance message to see it
+triaged — no integration or software installation required to try it.
 
 ---
 
@@ -201,9 +213,9 @@ Because this is a solo-developer beta project, support is not staffed
 ## 11. Frequently asked questions
 
 **Is this a real, existing company?**
-Faultline is a real product in active beta, built and run by an
-independent software developer. It is not a large company or a funded
-startup with a team.
+Faultline is a real product being actively built by an independent
+software developer — currently in development, not yet in beta. It is
+not a large company or a funded startup with a team.
 
 **Does Faultline replace my property management software?**
 No. It's a focused tool for one job — triaging maintenance requests and
@@ -225,13 +237,14 @@ Not currently. See Section 8 for what's available today versus what's
 on the roadmap.
 
 **How much does it cost?**
-Free during the beta. See Section 5 for planned post-beta pricing —
-always confirm current pricing on the live site, since plans can change
-before the product exits beta.
+Nothing yet — there's no live product or beta to pay for right now.
+See Section 5 for the planned pricing once beta opens; always confirm
+current pricing on the live site since plans can change before launch.
 
 **Is there a contract or minimum commitment?**
-No long-term contract. Cancellation terms beyond that haven't been
-formally published yet since the product is still in beta.
+Nothing to commit to yet since there's no live product. No long-term
+contract is planned; cancellation terms will be published once beta
+opens.
 
 **Is my tenant data secure?**
 See Section 7 for a direct, non-oversold answer — there is currently no
@@ -253,8 +266,9 @@ each ticket is tracked individually regardless of how many properties a
 user manages.
 
 **How do I sign up?**
-Join the waitlist from the landing page (Section 6). Beta access is
-granted in the order requests arrive, not instantly.
+There's no signup available right now — the product is in development
+and the waitlist form is currently off (see Section 6). Email the
+address in Section 10 to ask to be notified when beta access opens.
 
 **Who do I contact with a question this document doesn't answer?**
 ianrussel537@gmail.com (Section 10). Don't guess or invent an answer —
