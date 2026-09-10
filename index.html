@@ -9,6 +9,27 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;900&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  // Google Analytics (GA4) - skipped entirely on localhost so local dev/testing
+  // traffic never reaches it. Not tied to a specific domain: this keeps working
+  // as-is whether the site is on a vercel.app subdomain (now) or a custom domain
+  // (later) - no code change needed when that move happens.
+  (function () {
+    var isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1\]?)$/.test(location.hostname);
+    if (isLocal) return;
+
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=G-RL9HYB8TX8';
+    document.head.appendChild(s);
+
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    window.gtag = gtag;
+    gtag('js', new Date());
+    gtag('config', 'G-RL9HYB8TX8');
+  })();
+</script>
 <style>
   :root {
     --bg: #e7eae4;
