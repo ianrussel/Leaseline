@@ -1,9 +1,24 @@
-# Leaseline - Phase 0 Landing Page
+# Leaseline
 
-Validation landing page for "Leaseline," an AI maintenance-triage micro-SaaS
-for small property managers. Static single-page site, no build step.
+AI maintenance-triage micro-SaaS for small property managers and landlords. Static single-page
+site (`index.html`), no build step, plus a small serverless backend for the chat widget.
 
-See the full venture plan: `imon-my-48-years-staged-frost.md` in this repo.
+- Full venture plan: [`imon-my-48-years-staged-frost.md`](imon-my-48-years-staged-frost.md)
+- What's done / what's next, in order: [`progress.md`](progress.md)
+- This file: how to run it, what each piece is, environment requirements
+
+## What's in this repo
+
+| Path | What it is |
+|---|---|
+| `index.html` | The landing page - copy, styling, demo ticket examples, waitlist form, chat widget UI |
+| `api/chat.js` | Vercel serverless function backing the chat widget (Claude API + knowledge base) |
+| `docs/knowledge-base.md` | Source of truth the chatbot answers from - read at runtime by `api/chat.js` |
+| `docs/leaseline-knowledge-base.pdf` | Same content, rendered as a PDF (for feeding into an external RAG tool if needed) |
+| `dataset/` | Training data + its own generator/validator scripts - see `dataset/README.md` |
+| `scripts/` | `generate_dataset.py`, `validate_dataset.py`, `diversify_dataset.py` |
+| `private/task-leaseline-triage/` | Fine-tuning task code (plugs into the separate `ait-lab` pipeline) - not deployed, see `.vercelignore` |
+| `facebook-announcement.txt`, `leaseline-announcement.mp4` | Marketing copy/video drafted for launch |
 
 ## Environment variables
 
@@ -46,15 +61,6 @@ testing anything that touches the chat widget, since `npm run dev`'s
 static server can't execute the serverless function at all (the widget
 will show a connection error under it even with a valid key).
 
-## Waitlist submissions
-
-The form posts to [Formspree](https://formspree.io) (free tier) and
-arrives by email - manage or export entries at
-https://formspree.io/forms. The endpoint is wired in via `FORM_ENDPOINT`
-near the bottom of `index.html`; if you ever need to point it at a
-different form, that's the one line to change, then redeploy
-(`vercel --prod`).
-
 ## Deploy to Vercel
 
 One-time setup:
@@ -74,38 +80,29 @@ npx vercel --prod
 
 First run asks a few setup questions (link to a new project, keep
 defaults). Every later `npx vercel --prod` redeploys the same project to
-the same URL.
+the same URL. `.vercelignore` keeps `private/`, `scripts/`, `dataset/`,
+and internal planning docs out of the deployed bundle.
 
-## After it's live
+## Waitlist submissions
 
-Per the Phase 0 plan:
-- Post the link in r/PropertyManagement, r/Landlord, BiggerPockets, local
-  property-manager Facebook/LinkedIn groups.
-- Directly message 30–50 small property managers (2–20 units) asking if
-  they'd pay for this.
-- Gate to move forward with fine-tuning: 15–20 waitlist signups, or 5+
-  verbal "I'd pay" commitments, within ~2 weeks.
+The form posts to [Formspree](https://formspree.io) (free tier) and
+arrives by email - manage or export entries at
+https://formspree.io/forms. The endpoint is wired in via `FORM_ENDPOINT`
+near the bottom of `index.html`; if you ever need to point it at a
+different form, that's the one line to change, then redeploy
+(`vercel --prod`). The form itself is currently hidden behind a status
+message on the live page (see `progress.md`) - the markup is intact, so
+re-enabling it is a one-line `hidden` attribute flip, not a rebuild.
 
-## Phase 1 - training dataset
+## Training dataset
 
-Built in parallel with Phase 0 deployment, so it's ready the moment the
-validation gate is passed. See [`dataset/README.md`](dataset/README.md)
-for the schema, taxonomy, and honest limitations.
+See [`dataset/README.md`](dataset/README.md) for the schema, taxonomy, and honest limitations.
 
 ```bash
-python3 scripts/generate_dataset.py --train 2000 --eval 150   # (re)generate
+python3 scripts/generate_dataset.py --train 2000 --eval 150   # (re)generate the templated base set
 python3 scripts/validate_dataset.py                            # QA: schema, dupes, leakage, distribution
+python3 scripts/diversify_dataset.py dataset/train.jsonl dataset/train.diverse.jsonl  # LLM paraphrase pass (local Ollama)
 ```
-
-Current dataset: 2,000 template train rows, 150 eval rows, 8 categories ×
-4 urgency levels, ~12% multi-issue messages, zero schema errors or
-duplicates. A local-LLM diversification pass (`scripts/diversify_dataset.py`,
-paraphrases text/replies while freezing the template's category/urgency
-labels as ground truth) completed on the eval set and on 860/2,000 train
-rows before being interrupted - `dataset/train.diverse.jsonl` currently
-has 860 rows, `dataset/eval.diverse.jsonl` has all 150. Re-run the script
-to finish the remaining rows before a from-scratch fine-tune; the
-existing 860 are real, usable, already-QA'd training data as-is.
 
 ## Chat widget (customer-facing FAQ bot)
 
@@ -123,26 +120,24 @@ for the full content and its own "keep this updated" note.
   locally" above - `ANTHROPIC_API_KEY` in both `.env` (local) and
   Vercel's dashboard (deployed), and `npx vercel dev` to test it before
   shipping.
-- **Every question gets emailed to you** (optional, on by default once
-  configured): set `CHAT_LOG_FORMSPREE_ENDPOINT` and every question+answer
-  pair forwards there silently - nothing in the widget itself indicates
-  this to whoever's chatting. Formspree's free tier caps submissions per
-  month, so a busy week of chat traffic could hit that cap faster than
-  the waitlist form alone would.
+- **Chat logging** (optional): set `CHAT_LOG_FORMSPREE_ENDPOINT` and
+  every question+answer pair forwards there silently - nothing in the
+  widget itself indicates this to whoever's chatting. Formspree's free
+  tier caps submissions per month, so a busy week of chat traffic could
+  hit that cap faster than the waitlist form alone would.
 - **Known gap**: no rate limiting yet (would need a KV store like Upstash
   Redis - a separate account, not set up). Cost is bounded per-message
   (512 max output tokens, low reasoning effort, 2000-character input
   cap) but not per-visitor. Fine for beta-stage traffic; revisit if this
   ever gets meaningfully popular before real usage is proven.
 
-## Phase 2 - fine-tuning
+## Fine-tuning
 
-Runs on the existing `ait-lab` fine-tuning pipeline (config-driven,
-RunPod-based), not custom code in this repo - see
-`ait-lab/ai_training/trainings/task-leaseline-triage/README.md` for the
-full task writeup, the GPU-sizing rationale (a rented 16GB+ card is
-plenty; the local machine's 4GB GPU doesn't clear even that), and a
-ready-to-run RunPod notebook. Data prep (CPU-only) is already done and
-committed there; `pipeline.py` (the actual GPU training run) is a manual
-step - it costs real rented-GPU money and needs a human review of
-`gold.jsonl` first, by that project's own design.
+Runs on a separate `ait-lab` fine-tuning pipeline (config-driven,
+RunPod-based), not custom code in this repo. This project's side of that
+task - `prepare_data.py`, its own README, and the RunPod notebook - lives
+at [`private/task-leaseline-triage/`](private/task-leaseline-triage/)
+(kept out of the Vercel deployment via `.vercelignore`, since it's
+owner-only tooling, not part of the site). See that folder's README for
+the full task writeup, the GPU-sizing rationale, and exactly which
+commands run locally vs. on the `ait-lab` checkout vs. on a rented GPU.

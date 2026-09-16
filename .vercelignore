@@ -1,0 +1,12 @@
+# Files kept in this repo for private tracking/history, but not part of the deployed site.
+# Same syntax as .gitignore. docs/knowledge-base.md is deliberately NOT listed here - api/chat.js
+# reads it at runtime (fs.readFileSync), so excluding it would break the chat widget in production.
+
+private/
+scripts/
+dataset/
+docs/*.pdf
+imon-my-48-years-staged-frost.md
+facebook-announcement.txt
+leaseline-announcement.mp4
+progress.md
