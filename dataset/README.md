@@ -8,13 +8,16 @@ model. This is a **first-pass, fully synthetic** dataset — see
 
 | File | Rows | Purpose |
 |---|---|---|
-| `train.jsonl` | 2,000 | fine-tuning |
-| `eval.jsonl` | 150 | held-out accuracy check (Phase 2) — never used in training |
+| `train.jsonl` | 2,000 | templated base set (robotic phrasing — see "How this was built") |
+| `eval.jsonl` | 150 | templated held-out eval set, same caveat |
+| `train.diverse.jsonl` | 2,000 | **use this one for fine-tuning** — same labels, LLM-paraphrased text |
+| `eval.diverse.jsonl` | 150 | **use this one for eval** — same pairing as above |
 | `real_examples.jsonl` | 0 (template) | append real tenant messages here as outreach turns them up |
 
-Regenerate with `python3 scripts/generate_dataset.py --train 2000 --eval 150`
-(deterministic — same `--seed` always reproduces the same file). Validate
-any regeneration with `python3 scripts/validate_dataset.py`.
+Regenerate the templated base with `python3 scripts/generate_dataset.py --train 2000 --eval 150`
+(deterministic — same `--seed` always reproduces the same file), then re-run the diversification
+pass below to rebuild the `.diverse.jsonl` files. Validate any regeneration with
+`python3 scripts/validate_dataset.py <file> [<file> ...]`.
 
 ## Schema
 
@@ -52,17 +55,26 @@ message. Deterministic and free to regenerate or extend — add a line to
 
 Reply drafts are templated per urgency tier, not written per-example.
 
+**Diversification pass** (`scripts/diversify_dataset.py`, done — all 2,150 rows across both
+splits): a local Ollama model (`qwen2.5:3b-instruct`) rewrites each `input` message and
+`draft_response` in a different natural voice, while the template-assigned `category`/`urgency`
+labels are frozen and never touched by the model — it paraphrases, it never re-labels. A safety
+guard rejects and falls back to the original text if a rewrite is an empty/exact-echo/wildly
+different-length output, or if it invents escalation language ("immediate", "asap", etc.) on a
+Low/Medium-urgency row that shouldn't have it — 88/2,000 train rows (4.4%) and 7/150 eval rows
+(4.7%) fell back this way, which is expected and correct, not a failure. Per-row audit trail
+(original vs. rewritten, which fell back) is in `train.diverse.audit.jsonl` /
+`eval.diverse.audit.jsonl` — spot-check before trusting a re-run.
+
 ## Limitations (read before fine-tuning)
 
-- **Phrasing is templated, not organic.** Real tenant messages will
-  include typos, dialect, sarcasm, and context this generator doesn't
-  produce. Treat this set as scaffolding for the label taxonomy and
-  response tone, not a finished training set.
-- **Draft replies are formulaic** — same handful of opener sentences
-  reused across hundreds of rows. Before a real fine-tune, run a
-  diversification pass (have an LLM rewrite each `draft_response` in a
-  few different voices) so the model doesn't just memorize four stock
-  sentences.
+- **Templated files are scaffolding, not the training set.** `train.jsonl`/`eval.jsonl` are
+  useful for inspecting the taxonomy or regenerating from scratch, but the formulaic phrasing
+  described above is real — always fine-tune on the `.diverse.jsonl` files instead.
+- **Diversified phrasing still isn't organic.** The rewrite pass adds real variation, but a
+  3B local model paraphrasing templates is not the same as actual tenant messages — expect
+  typos, dialect, sarcasm, and context this process still doesn't produce. Real examples
+  (below) matter more than another diversification pass.
 - **No real tenant data yet.** `real_examples.jsonl` is the drop point
   for actual messages collected during Phase 0 outreach (anonymize unit
   numbers/names before adding). Real examples matter more than more

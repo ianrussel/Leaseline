@@ -4,7 +4,7 @@ Internal tracker for what's done and what's next, in phase order. `README.md` st
 technical (how to run, env vars, requirements) — this file is the todo list. Update it as things
 move; don't let it drift the way the knowledge base briefly did.
 
-Last reviewed: 2026-09-17.
+Last reviewed: 2026-09-17 (dataset diversification completed same day).
 
 ---
 
@@ -61,11 +61,11 @@ These sit ahead of their phase below because they block everything after them.
       categories × 4 urgency levels, ~12% multi-issue messages
 - [x] Validator (`scripts/validate_dataset.py`) — schema, dupes, leakage, distribution checks
 - [x] Diversification pass (`scripts/diversify_dataset.py`, local Ollama model, frozen-label
-      guard) — **partially done**: 860/2,000 train rows, 150/150 eval rows
-- [ ] Finish diversifying the remaining ~1,140 train rows (or accept 860 as the v0 training set —
-      it's real, usable data either way, just smaller than the original target)
+      guard) — **complete**: 2,000/2,000 train rows, 150/150 eval rows. 4.4%/4.7% fallback rate
+      (safety guard rejecting bad rewrites) — expected, not a problem. `train.diverse.jsonl` /
+      `eval.diverse.jsonl` are the files to actually fine-tune on, per `dataset/README.md`.
 - [ ] Fold real tenant messages into `dataset/real_examples.jsonl` as Phase 0 outreach turns them
-      up (currently empty — matters more than more synthetic volume)
+      up (currently empty — matters more than the synthetic volume above)
 
 ## Phase 2 — Fine-tuning
 
@@ -75,9 +75,12 @@ writeup and the shared-pipeline dependency).
 
 - [x] Task set up: `task.type: extraction`, `Qwen/Qwen2.5-1.5B-Instruct`, judge-free/
       calibration-free scoring (category + urgency field accuracy)
-- [x] `prepare_data.py` + `targets.py` run successfully (CPU, local) — 860 train / 150 gold rows
-      prepped, verified working again after the folder move
+- [x] `prepare_data.py` + `targets.py` run successfully (CPU, local) — verified working again
+      after the folder move
 - [x] RunPod notebook ready (`module_colab_leaseline.ipynb`)
+- [ ] **Re-run `prepare_data.py`** — it was last run against the 860-row diversified train set;
+      the source dataset is now the full 2,000 rows (see Phase 1). Re-running picks up all 2,000
+      before the GPU spend below, rather than fine-tuning on the smaller snapshot.
 - [ ] Human review of `gold.jsonl` (real product data, not a throwaway benchmark — this is the
       checkpoint before spending money)
 - [ ] Set `confirmed: true` in `config_leaseline.yaml` (the ait-lab copy is authoritative)
