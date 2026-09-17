@@ -17,8 +17,10 @@ site (`index.html`), no build step, plus a small serverless backend for the chat
 | `docs/leaseline-knowledge-base.pdf` | Same content, rendered as a PDF (for feeding into an external RAG tool if needed) |
 | `dataset/` | Training data + its own generator/validator scripts - see `dataset/README.md` |
 | `scripts/` | `generate_dataset.py`, `validate_dataset.py`, `diversify_dataset.py` |
-| `private/task-leaseline-triage/` | Fine-tuning task code (plugs into the separate `ait-lab` pipeline) - not deployed, see `.vercelignore` |
 | `facebook-announcement.txt`, `leaseline-announcement.mp4` | Marketing copy/video drafted for launch |
+
+Fine-tuning lives in a **separate sibling repo**, [`../leaseline-training`](../leaseline-training) -
+see "Fine-tuning" below.
 
 ## Environment variables
 
@@ -80,8 +82,8 @@ npx vercel --prod
 
 First run asks a few setup questions (link to a new project, keep
 defaults). Every later `npx vercel --prod` redeploys the same project to
-the same URL. `.vercelignore` keeps `private/`, `scripts/`, `dataset/`,
-and internal planning docs out of the deployed bundle.
+the same URL. `.vercelignore` keeps `scripts/`, `dataset/`, and internal
+planning docs out of the deployed bundle.
 
 ## Waitlist submissions
 
@@ -133,11 +135,8 @@ for the full content and its own "keep this updated" note.
 
 ## Fine-tuning
 
-Runs on a separate `ait-lab` fine-tuning pipeline (config-driven,
-RunPod-based), not custom code in this repo. This project's side of that
-task - `prepare_data.py`, its own README, and the RunPod notebook - lives
-at [`private/task-leaseline-triage/`](private/task-leaseline-triage/)
-(kept out of the Vercel deployment via `.vercelignore`, since it's
-owner-only tooling, not part of the site). See that folder's README for
-the full task writeup, the GPU-sizing rationale, and exactly which
-commands run locally vs. on the `ait-lab` checkout vs. on a rented GPU.
+Lives in a **separate repo**, [`../leaseline-training`](../leaseline-training) - not this one,
+and not deployed anywhere. Standalone (own `requirements.txt`, own `prepare_data.py`/`train.py`/
+`evaluate.py`, no dependency on any other project's pipeline code); the only thing it reads from
+*this* repo is `dataset/` (as a sibling checkout, for its raw training data). See that repo's
+README for the full task writeup, GPU sizing, and the RunPod notebook.

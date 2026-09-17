@@ -22,11 +22,15 @@ These sit ahead of their phase below because they block everything after them.
             a legal clearance)
       - [ ] Execute the rename across the codebase (index.html, api/chat.js, docs/knowledge-base.md
             + regenerate PDF, README.md, package.json, dataset/README.md, scripts/generate_dataset.py,
-            facebook-announcement.txt, the announcement video, and the ait-lab task folder/config —
-            same scope as the Faultline→Leaseline rename already done once)
-- [ ] **Deploy to Vercel production.** No `.vercel/project.json` exists yet — unclear if this has
-      ever actually gone live via `vercel --prod`, as opposed to just `vercel dev` locally.
-      Confirm/run `npx vercel --prod` after the rename lands.
+            facebook-announcement.txt, the announcement video, and the sibling `leaseline-training`
+            repo — same scope as the Faultline→Leaseline rename already done once). Consider
+            renaming both project folders too (`leaseline/` → `<name>/`,
+            `leaseline-training/` → `<name>-training/`) for consistency, though not required.
+- [ ] **Deploy to Vercel production.** No `.vercel/project.json` exists yet, and `.vercel/repo.json`
+      still shows the project name as "faultline" from an even earlier rename — unclear if this
+      has ever actually gone live via `vercel --prod`, as opposed to just `vercel dev` locally.
+      Confirm/run `npx vercel --prod` after the rename lands (may need `vercel link` again given
+      the folder rename firstproject→leaseline and the stale project name).
 - [ ] **Set `ANTHROPIC_API_KEY` in the Vercel dashboard** (Project → Settings → Environment
       Variables). Works locally via `.env`; production won't answer chat questions without this
       set separately. Confirm by asking the live chat widget something after deploying.
@@ -74,29 +78,30 @@ These sit ahead of their phase below because they block everything after them.
 
 ## Phase 2 — Fine-tuning
 
-Runs on the ait-lab fine-tuning pipeline, not custom code in this repo. Task code now lives at
-`private/task-leaseline-triage/` (moved 2026-09-17, see that folder's README for the full
-writeup and the shared-pipeline dependency).
+**Moved to a separate standalone repo, [`../leaseline-training`](../leaseline-training)
+(2026-09-17).** No longer depends on the ait-lab research project's shared pipeline code - this
+is a real product, so its training code owns its own `prepare_data.py`/`train.py`/`evaluate.py`,
+own `requirements.txt`, own repo. The only cross-repo reference anywhere in that repo is
+`prepare_data.py` reading this repo's `dataset/` folder.
 
-- [x] Task set up: `task.type: extraction`, `Qwen/Qwen2.5-1.5B-Instruct`, judge-free/
-      calibration-free scoring (category + urgency field accuracy)
-- [x] `prepare_data.py` + `targets.py` run successfully (CPU, local) — verified working again
-      after the folder move
-- [x] RunPod notebook ready (`module_colab_leaseline.ipynb`)
-- [x] **Re-ran `prepare_data.py` + `targets.py`** against the full 2,000-row diverse train set
-      (was 860). Caught and fixed a staleness gap while doing this: `prepare_data.py` alone
-      refreshes `train_raw.jsonl`, but `train_targets.jsonl`/`train_mix.jsonl` (what `pipeline.py`
-      actually trains on) only update when `targets.py` is re-run too — running just the first
-      would have silently trained on the old 860-row snapshot. All four files now consistently
-      show 2,000 rows in `/data/ait-lab/ft-data/leaseline-data/`. **Re-run both together from now
-      on, never `prepare_data.py` alone, whenever the source dataset changes** (e.g. after adding
-      real examples).
-- [ ] Human review of `gold.jsonl` (real product data, not a throwaway benchmark — this is the
-      checkpoint before spending money)
-- [ ] Set `confirmed: true` in `config_leaseline.yaml` (the ait-lab copy is authoritative)
-- [ ] Rent a RunPod GPU (cheapest 16GB+ card is enough — see that task's README for why) and run
-      `pipeline.py` — expect well under an hour of GPU time, a few dollars total
-- [ ] Read the ACCEPT/REJECT gate result in `report.json`
+- [x] `prepare_data.py` rewritten standalone (zero external imports), verified working - 2,000
+      train rows + 150 gold rows
+- [x] `evaluate.py` written - judge-free field-accuracy scoring (category+urgency exact match).
+      Pure scoring logic unit-tested and confirmed correct (exact match, partial match,
+      unparseable output, prose-wrapped JSON all score correctly)
+- [x] `train.py` written - QLoRA fine-tune, evaluates base vs. tuned, writes ACCEPT/REJECT
+      `report.json`. Model-loading/`SFTTrainer` calls follow a proven-working pattern from
+      ait-lab's own train.py (reused as reference code, not a runtime dependency)
+- [x] RunPod notebook updated for the standalone repo (no more shared-folder env vars to
+      override - that whole risk class is gone now that data/output live in this repo, not a
+      shared external volume)
+- [ ] **`train.py`/`evaluate.py` have NOT been run end-to-end** - no GPU on this machine. First
+      RunPod run should be treated as validating this code, not just producing a result
+- [ ] Human review of `data/gold.jsonl` in `leaseline-training` (real product data, not a
+      throwaway benchmark — this is the checkpoint before spending money)
+- [ ] Rent a RunPod GPU (cheapest 16GB+ card is enough — see that repo's README for why) and run
+      `train.py --config config.yaml` — expect well under an hour of GPU time, a few dollars total
+- [ ] Read the ACCEPT/REJECT verdict in `runs/seed0/report.json`
 - [ ] If ACCEPT: adapter is usable — proceed to Phase 3 to actually deploy it. If REJECT: read the
       per-field breakdown before deciding whether to adjust data, LR, or epochs and re-run
 
@@ -127,10 +132,15 @@ project owner can create.
 
 - [x] Vercel serverless function for chat (`api/chat.js`), zero-config
 - [x] `.env` / `.env.example` documented, `.env*` gitignored
-- [x] `.vercelignore` added — keeps `private/`, `scripts/`, `dataset/`, internal planning docs,
-      and the announcement video/text out of the deployed site (they were being publicly served
-      as static files before this)
-- [x] ait-lab fine-tuning task moved into this repo under `private/` for version control +
-      privacy, paths updated and re-verified working after the move
+- [x] `.vercelignore` added — keeps `scripts/`, `dataset/`, internal planning docs, and the
+      announcement video/text out of the deployed site (they were being publicly served as
+      static files before this)
+- [x] **2026-09-17: two-repo split.** Project folder renamed `firstproject/` → `leaseline/`
+      (git history intact). Fine-tuning code moved out entirely into a new sibling repo,
+      [`../leaseline-training`](../leaseline-training) - standalone, no dependency on the
+      ait-lab research project (see that repo's own commit history for the full rebuild:
+      `prepare_data.py`/`train.py`/`evaluate.py` rewritten from scratch, own
+      `requirements.txt`/`.pre-commit-config.yaml`). ait-lab itself is now fully clean of any
+      Leaseline references - nothing there depends on this product or vice versa.
 - [ ] Consider whether `README.md` itself should also be excluded from deployment (left in for
       now — no secrets in it, just setup instructions; low priority either way)

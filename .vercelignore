@@ -2,7 +2,6 @@
 # Same syntax as .gitignore. docs/knowledge-base.md is deliberately NOT listed here - api/chat.js
 # reads it at runtime (fs.readFileSync), so excluding it would break the chat widget in production.
 
-private/
 scripts/
 dataset/
 docs/*.pdf
