@@ -83,9 +83,14 @@ writeup and the shared-pipeline dependency).
 - [x] `prepare_data.py` + `targets.py` run successfully (CPU, local) — verified working again
       after the folder move
 - [x] RunPod notebook ready (`module_colab_leaseline.ipynb`)
-- [ ] **Re-run `prepare_data.py`** — it was last run against the 860-row diversified train set;
-      the source dataset is now the full 2,000 rows (see Phase 1). Re-running picks up all 2,000
-      before the GPU spend below, rather than fine-tuning on the smaller snapshot.
+- [x] **Re-ran `prepare_data.py` + `targets.py`** against the full 2,000-row diverse train set
+      (was 860). Caught and fixed a staleness gap while doing this: `prepare_data.py` alone
+      refreshes `train_raw.jsonl`, but `train_targets.jsonl`/`train_mix.jsonl` (what `pipeline.py`
+      actually trains on) only update when `targets.py` is re-run too — running just the first
+      would have silently trained on the old 860-row snapshot. All four files now consistently
+      show 2,000 rows in `/data/ait-lab/ft-data/leaseline-data/`. **Re-run both together from now
+      on, never `prepare_data.py` alone, whenever the source dataset changes** (e.g. after adding
+      real examples).
 - [ ] Human review of `gold.jsonl` (real product data, not a throwaway benchmark — this is the
       checkpoint before spending money)
 - [ ] Set `confirmed: true` in `config_leaseline.yaml` (the ait-lab copy is authoritative)

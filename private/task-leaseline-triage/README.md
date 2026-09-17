@@ -84,8 +84,17 @@ seeds, expect well under an hour of GPU time - a few dollars, not tens.
 
 ## How to run it
 
-Local (CPU, already done as of this writing - see the two commands' output in this project's
-chat history). `prepare_data.py` runs from its new home here; `targets.py` still runs from
+**Always run `prepare_data.py` and `targets.py` together, never just the first one.**
+`prepare_data.py` refreshes `train_raw.jsonl` from the current dataset, but `pipeline.py` (the
+actual training step) reads `train_targets.jsonl`/`train_mix.jsonl` instead - those only get
+rebuilt when `targets.py` runs too. Running `prepare_data.py` alone after the dataset changes
+(e.g. more diversified rows, or a real example added) leaves `train_raw.jsonl` fresh but
+`train_mix.jsonl` stale, and `pipeline.py` would silently train on the old snapshot with no
+error. This actually happened once (2026-09-17: caught 860-row stale `train_mix.jsonl` sitting
+next to a freshly-regenerated 2,000-row `train_raw.jsonl`) - fixed by re-running `targets.py`,
+now documented here so it doesn't happen quietly again.
+
+Local (CPU). `prepare_data.py` runs from its new home here; `targets.py` still runs from
 inside the ait-lab checkout since that's where the shared pipeline scripts live:
 
 ```bash
