@@ -64,8 +64,13 @@ These sit ahead of their phase below because they block everything after them.
       guard) — **complete**: 2,000/2,000 train rows, 150/150 eval rows. 4.4%/4.7% fallback rate
       (safety guard rejecting bad rewrites) — expected, not a problem. `train.diverse.jsonl` /
       `eval.diverse.jsonl` are the files to actually fine-tune on, per `dataset/README.md`.
-- [ ] Fold real tenant messages into `dataset/real_examples.jsonl` as Phase 0 outreach turns them
-      up (currently empty — matters more than the synthetic volume above)
+- [ ] **Ongoing, not blocking** — fold real tenant messages into `dataset/real_examples.jsonl`
+      *whenever* outreach or real users turn them up (currently empty; no script reads this file
+      yet, so it also needs prepare_data.py updated or a manual merge into `train.diverse.jsonl`
+      once there's something to add). The 2,000-row synthetic set is a complete v0 dataset on its
+      own — **Phase 2 does not wait on this.** Real examples matter more than more synthetic
+      volume only in the sense that if/when they show up, add those before generating still more
+      synthetic rows — not that fine-tuning is gated on having any.
 
 ## Phase 2 — Fine-tuning
 
