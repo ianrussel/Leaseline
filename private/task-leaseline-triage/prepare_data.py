@@ -117,6 +117,7 @@ def main():
 
     train_src = os.path.join(args.source_dir, "train.diverse.jsonl")
     gold_src = os.path.join(args.source_dir, "eval.diverse.jsonl")
+    real_src = os.path.join(args.source_dir, "real_examples.jsonl")
     for p in (train_src, gold_src):
         if not os.path.exists(p):
             raise SystemExit(f"[prepare] missing source file: {p} - is --source-dir correct?")
@@ -125,12 +126,15 @@ def main():
     gold_source_rows = load_rows(gold_src)
     print(f"[prepare] loaded {len(train_source_rows)} train rows from {train_src}")
     print(f"[prepare] loaded {len(gold_source_rows)} gold rows from {gold_src}")
-    if len(train_source_rows) < 2000:
-        print(f"[prepare] NOTE: source train file has {len(train_source_rows)} rows, not the "
-             f"full 2000 the source project generated - its diversification pass was "
-             f"interrupted mid-run (see that project's chat history / TRAINING-LOG equivalent). "
-             f"Using what's there; this is a real, usable v0 training set, just smaller than "
-             f"the source project's full target.")
+
+    # Real tenant examples, when there are any - train-only, never gold. gold.jsonl stays a
+    # fixed benchmark for comparing runs; a real example is precious and better spent teaching
+    # the model than burned as one more held-out row.
+    real_rows = load_rows(real_src) if os.path.exists(real_src) else []
+    if real_rows:
+        print(f"[prepare] loaded {len(real_rows)} REAL tenant example(s) from {real_src} "
+             f"(train-only, folded in below)")
+        train_source_rows = train_source_rows + real_rows
 
     # sanity: every row's fields are in the known closed sets before anything gets written
     bad = 0
