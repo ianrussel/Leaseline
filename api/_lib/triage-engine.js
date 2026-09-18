@@ -36,17 +36,48 @@ function buildPrompt(tenantMessage) {
 // stray extra closing brace after an otherwise well-formed object. A greedy match grabs both
 // braces and produces invalid JSON even though the actual object was fine. This also tolerates
 // prose or a code fence around the object, same intent as evaluate.py's extract_json_obj.
+//
+// Tracks whether it's currently inside a quoted string for two reasons, both hit by real model
+// output, not hypothetical:
+//   1. A `{`/`}` appearing inside a string value (e.g. draft_response prose) must not be counted
+//      as structural - otherwise brace depth gets thrown off by content, not structure.
+//   2. A multi-paragraph draft_response can contain a literal, unescaped newline - valid-looking
+//      to a human, but invalid JSON (control characters must be escaped inside a string per the
+//      JSON spec). JSON.parse correctly rejects this and there's no way to ask it to tolerate it,
+//      so raw \n/\r/\t found *inside* a string are escaped here before parsing - this only
+//      touches characters already inside quotes, so it can't corrupt otherwise-valid JSON.
 function extractJsonObj(text) {
   const start = text.indexOf("{");
   if (start === -1) return null;
+
   let depth = 0;
+  let inString = false;
+  let escapedNext = false;
+  let sanitized = "";
+
   for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}") {
+    const ch = text[i];
+    sanitized += inString && ch === "\n" ? "\\n"
+               : inString && ch === "\r" ? "\\r"
+               : inString && ch === "\t" ? "\\t"
+               : ch;
+
+    if (inString) {
+      if (escapedNext) escapedNext = false;
+      else if (ch === "\\") escapedNext = true;
+      else if (ch === '"') inString = false;
+      continue; // brace-depth tracking below only applies outside strings
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
       depth--;
       if (depth === 0) {
         try {
-          return JSON.parse(text.slice(start, i + 1));
+          return JSON.parse(sanitized);
         } catch {
           return null;
         }
