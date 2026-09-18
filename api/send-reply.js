@@ -100,5 +100,17 @@ export default async function handler(req, res) {
     console.error("send-reply: email sent but failed to update ticket:", updateError.message);
   }
 
+  // If this ticket originated from dashboard.html's inbox (api/triage.js linked a tenant_messages
+  // row to it), mark that row 'resolved' now - not at triage time, since a triaged-but-not-yet-
+  // sent message shouldn't read as handled. Best-effort, same reasoning as updateError above: the
+  // email already went out, so a failure here is logged, not surfaced to the caller.
+  const { error: resolveError } = await supabaseAdmin
+    .from("tenant_messages")
+    .update({ status: "resolved" })
+    .eq("ticket_id", id);
+  if (resolveError) {
+    console.error("send-reply: sent but failed to resolve linked tenant_message:", resolveError.message);
+  }
+
   res.status(200).json({ ok: true });
 }

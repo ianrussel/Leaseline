@@ -1,8 +1,14 @@
 // Vercel serverless function - webhook target for Resend's inbound email receiving (see
 // https://resend.com/docs/dashboard/receiving/introduction). This is the "future inbox
 // connection" tier mentioned in docs/knowledge-base.md's own roadmap ("by paste, forward, or
-// future inbox connection") - a tenant's email lands here automatically, gets triaged, and
-// becomes a ticket with zero manual copy-pasting, instead of needing dashboard.html at all.
+// future inbox connection") - a tenant's email lands here automatically, with zero manual
+// copy-pasting into dashboard.html required.
+//
+// Deliberately does NOT auto-triage or auto-create a ticket - it only inserts a `pending` row
+// into `tenant_messages` (see supabase/schema.sql). Receiving an email isn't the same as deciding
+// it needs a reply, and AI triage costs a real inference call, so neither should happen just
+// because an email arrived. dashboard.html's inbox shows these rows; a ticket only gets created
+// once the property manager reviews one and clicks "Triage" themselves (api/triage.js).
 //
 // Setup (see README.md's "Inbound email" section for the full walkthrough):
 //   1. Resend dashboard -> Emails -> Receiving -> note your <id>.resend.app address (free, no
@@ -21,7 +27,6 @@
 
 import { Webhook } from "svix";
 import { supabaseAdmin } from "./_lib/auth.js";
-import { runTriage } from "./_lib/triage-engine.js";
 
 export const config = {
   api: {
@@ -136,17 +141,27 @@ export default async function handler(req, res) {
   }
 
   // Truncate rather than reject outright - unlike a form submission, there's no one for the
-  // sender to retry with a shorter message; a truncated ticket is still useful, a dropped one
+  // sender to retry with a shorter message; a truncated inbox item is still useful, a dropped one
   // silently isn't.
-  const message = text.length > 2000 ? text.slice(0, 2000) : text;
+  const body = text.length > 2000 ? text.slice(0, 2000) : text;
 
-  const result = await runTriage({ message, tenantContact: from, userId: ownerUserId });
-  if (!result.ok) {
-    console.error(`inbound-email: triage failed for email ${email_id} (subject: "${subject}"):`, result.error);
-    res.status(200).json({ ok: false, error: result.error }); // still 200 - Resend would otherwise retry indefinitely
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from("tenant_messages")
+    .insert({
+      from_email: from,
+      subject: subject || null,
+      body,
+      created_by: ownerUserId,
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    console.error(`inbound-email: failed to save inbox row for email ${email_id}:`, insertError.message);
+    res.status(200).json({ ok: false, error: insertError.message }); // still 200 - Resend would otherwise retry indefinitely
     return;
   }
 
-  console.log(`inbound-email: created ticket #${result.ticket.ticket_number} from ${from}`);
-  res.status(200).json({ ok: true, ticket_number: result.ticket.ticket_number });
+  console.log(`inbound-email: saved pending tenant message ${inserted.id} from ${from}`);
+  res.status(200).json({ ok: true, tenant_message_id: inserted.id });
 }

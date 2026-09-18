@@ -134,6 +134,33 @@
           top of the login above.
         </div>
 
+        <div class="card" id="inboxCard" hidden>
+          <div class="card-body">
+            <h5 class="card-title mb-3">
+              Tenant inbox
+              <span class="badge bg-secondary text-mono" id="inboxCount">0</span>
+            </h5>
+            <p class="text-muted small mb-2">
+              Emails received automatically, not yet triaged. The oldest one loads into the
+              window below by itself - click any other row to work that one instead.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr class="text-muted text-mono small">
+                    <th>Received</th>
+                    <th>From</th>
+                    <th>Subject</th>
+                    <th>Preview</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="inboxBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div class="row">
           <div class="col-lg-7 mb-3">
             <div class="card">
@@ -287,6 +314,9 @@
   const sidebarToggle = document.getElementById('sidebarToggle');
   const userEmail = document.getElementById('userEmail');
   const trainingReviewNavItem = document.getElementById('trainingReviewNavItem');
+  const inboxCard = document.getElementById('inboxCard');
+  const inboxBody = document.getElementById('inboxBody');
+  const inboxCount = document.getElementById('inboxCount');
 
   sidebarToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-enable'));
 
@@ -301,15 +331,12 @@
       // actually reach the panel, only whether they're invited to try.
       trainingReviewNavItem.hidden = session.user?.app_metadata?.role !== 'admin';
       loadTickets();
+      loadTenantMessages(true);
     } else {
       loginScreen.hidden = false;
       wrapper.hidden = true;
     }
   }
-
-  const { data: { session: initialSession } } = await supabase.auth.getSession();
-  showForSession(initialSession);
-  supabase.auth.onAuthStateChange((_event, session) => showForSession(session));
 
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -346,8 +373,79 @@
   const actionNote = document.getElementById('actionNote');
   const sendHint = document.getElementById('sendHint');
 
+  // Deliberately after every const above, not right after createClient() - showForSession (called
+  // immediately below when a session already exists, e.g. a page reload while still logged in)
+  // reaches into loadTenantMessages()/loadIntoWindow(), which read messageInput/tenantContactInput/
+  // etc; calling it before those are declared throws a temporal-dead-zone ReferenceError, the same
+  // bug class the ticketsBody comment above already warns about.
+  const { data: { session: initialSession } } = await supabase.auth.getSession();
+  showForSession(initialSession);
+  supabase.auth.onAuthStateChange((_event, session) => showForSession(session));
+
   let currentTicketId = null; // set after a successful triage; null if it couldn't be saved
   let tenantContactWasAutoFilled = false; // so a later manual edit isn't silently clobbered by re-detection
+  let selectedTenantMessageId = null; // set when the loaded message came from the inbox below, not pasted by hand
+
+  function escapeAttr(s) {
+    return s.replace(/"/g, '&quot;');
+  }
+
+  // Populates the paste form from an inbox row - same fields a manual paste would fill, just
+  // sourced from api/tenant-messages.js instead of typed/pasted by hand. Doesn't submit anything
+  // by itself - triage still requires an explicit click on "Triage" below, same as a pasted
+  // message always has, so the manager sees exactly what they're about to run before it costs an
+  // inference call.
+  function loadIntoWindow(item) {
+    messageInput.value = item.body;
+    tenantContactInput.value = item.from_email;
+    tenantContactWasAutoFilled = false; // this IS the real sender address, not a guess - don't let later edits to `message` clear it
+    emailDetectedNote.hidden = true;
+    selectedTenantMessageId = item.id;
+    errorBox.hidden = true;
+    result.hidden = true;
+    currentTicketId = null;
+  }
+
+  async function loadTenantMessages(autoLoadOldest) {
+    try {
+      const res = await authedFetch('/api/tenant-messages');
+      if (!res.ok) throw new Error('failed');
+      const items = await res.json();
+
+      inboxCard.hidden = false;
+      inboxCount.textContent = items.length;
+
+      inboxBody.innerHTML = items.length
+        ? items.map((item) => `
+          <tr>
+            <td class="small text-muted text-nowrap">${new Date(item.created_at).toLocaleString()}</td>
+            <td class="small">${escapeHtml(item.from_email)}</td>
+            <td class="small">${escapeHtml(item.subject || '(no subject)')}</td>
+            <td class="small text-truncate" style="max-width: 240px;">${escapeHtml(item.body)}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-sm btn-outline-primary load-inbox-item" data-id="${escapeAttr(item.id)}">Load</button>
+            </td>
+          </tr>
+        `).join('')
+        : '<tr><td colspan="5" class="text-muted small">Inbox empty.</td></tr>';
+
+      inboxBody.querySelectorAll('.load-inbox-item').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const item = items.find((i) => i.id === btn.dataset.id);
+          if (item) loadIntoWindow(item);
+        });
+      });
+
+      // Only auto-load when the window is genuinely free to use - an empty message box AND
+      // nothing already selected from a previous inbox click - so this never clobbers a message
+      // the manager is actively pasting or already reviewing.
+      if (autoLoadOldest && items.length && !messageInput.value.trim() && !selectedTenantMessageId) {
+        loadIntoWindow(items[0]); // oldest first - see api/tenant-messages.js's ordering
+      }
+    } catch (err) {
+      console.error('Failed to load tenant inbox:', err);
+    }
+  }
 
   function showActionNote(text) {
     actionNote.textContent = text;
@@ -397,7 +495,11 @@
     try {
       const res = await authedFetch('/api/triage', {
         method: 'POST',
-        body: JSON.stringify({ message, tenant_contact: tenantContact || undefined }),
+        body: JSON.stringify({
+          message,
+          tenant_contact: tenantContact || undefined,
+          tenant_message_id: selectedTenantMessageId || undefined,
+        }),
       });
       const data = await res.json();
 
@@ -417,6 +519,10 @@
       actionNote.hidden = true;
       result.hidden = false;
       loadTickets();
+      // Refresh only - don't auto-load another item into a window the manager is now actively
+      // reviewing/editing the result of. If this triage came from the inbox, the row is already
+      // linked to a ticket server-side and this just makes it disappear from the list below.
+      loadTenantMessages(false);
     } catch (err) {
       errorBox.textContent = 'Network error - is the server running?';
       errorBox.hidden = false;
@@ -479,6 +585,23 @@
 
       showActionNote('Email sent');
       loadTickets();
+
+      // Sending is the "done with this one" moment (see api/send-reply.js, which is what
+      // actually flips the linked tenant_messages row to 'resolved' - not triage, which only
+      // links it). Clearing the window and auto-loading the next oldest pending item turns the
+      // inbox into a queue: sent -> next one's already waiting, no manual re-selection needed.
+      // Delayed to match showActionNote's own 2500ms so "Email sent" is still visible when it
+      // happens, not wiped out from under the confirmation the instant it appears.
+      setTimeout(() => {
+        messageInput.value = '';
+        tenantContactInput.value = '';
+        tenantContactWasAutoFilled = false;
+        emailDetectedNote.hidden = true;
+        result.hidden = true;
+        currentTicketId = null;
+        selectedTenantMessageId = null;
+        loadTenantMessages(true);
+      }, 2500);
     } catch (err) {
       errorBox.textContent = 'Network error - is the server running?';
       errorBox.hidden = false;

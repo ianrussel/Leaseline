@@ -56,3 +56,37 @@ create index if not exists tickets_training_status_idx on tickets (training_stat
 -- (e.g. a future bug or a new client-side feature added carelessly), zero policies means zero
 -- access, not silent full access to every tenant's messages.
 alter table tickets enable row level security;
+
+-- Inbound tenant emails (api/inbound-email.js) land here FIRST, not straight into `tickets` -
+-- receiving an email is not the same as deciding it needs a reply, and AI triage costs a real
+-- inference call, so neither should happen automatically just because an email arrived. A row
+-- here only becomes a ticket once the property manager reviews it in dashboard.html's inbox and
+-- clicks "Triage" themselves (see api/triage.js's tenant_message_id handling).
+create table if not exists tenant_messages (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+
+  from_email text not null,
+  subject text,
+  body text not null,
+
+  created_by uuid references auth.users(id),
+
+  -- 'pending': sitting in the inbox, not yet acted on. 'resolved': the ticket created from this
+  -- message was actually sent to the tenant (api/send-reply.js). 'dismissed': reserved for a
+  -- future "not worth a reply" action - nothing sets this yet.
+  status text not null default 'pending' check (status in ('pending', 'resolved', 'dismissed')),
+
+  -- Set once the manager triages this message (api/triage.js links it here) - from that moment
+  -- the row disappears from the pending inbox list (see api/tenant-messages.js's query, which
+  -- filters on ticket_id is null) even though `status` itself doesn't flip to 'resolved' until
+  -- the resulting ticket is actually sent. Keeps a single inbound email from being triaged twice
+  -- while still tracking, separately, whether a reply actually went out.
+  ticket_id uuid references tickets(id)
+);
+
+create index if not exists tenant_messages_pending_idx on tenant_messages (created_at desc)
+  where status = 'pending' and ticket_id is null;
+
+-- Same defense-in-depth reasoning as `tickets` above - only ever touched via service_role.
+alter table tenant_messages enable row level security;

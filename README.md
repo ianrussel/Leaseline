@@ -209,18 +209,31 @@ fine-tuned model deployed per `../leaseline-training`'s
 
 `api/inbound-email.js` - the "future inbox connection" tier mentioned in
 `docs/knowledge-base.md`'s own roadmap ("by paste, forward, or future inbox connection"). A
-tenant's email arrives, gets triaged, and becomes a ticket automatically - `dashboard.html`'s
-"paste a message" flow still exists and still works, this is just a second way for a ticket to
-get created, not a replacement.
+tenant's email arrives with zero manual copy-pasting into `dashboard.html` required.
 
-Both `api/triage.js` and `api/inbound-email.js` now share the same core logic
-(`api/_lib/triage-engine.js`) - the HF call, the safety-net floor, and the ticket insert are
-identical either way; only how the message *arrives* differs (a logged-in user's POST vs. a
-webhook with no user session at all).
+**Deliberately does NOT auto-triage or auto-create a ticket.** Receiving an email isn't the same
+as deciding it needs a reply, and AI triage costs a real inference call, so neither happens
+automatically just because an email arrived - especially since a tenant can send several messages
+about different issues before earlier ones are resolved. Instead:
+
+1. The webhook only inserts a `pending` row into the `tenant_messages` table (see
+   `supabase/schema.sql`).
+2. `dashboard.html`'s **Tenant inbox** card lists pending rows, oldest first, and auto-loads the
+   oldest one into the "Tenant message" window - a click on any other row loads that one instead.
+   Nothing is submitted until the manager clicks **Triage** themselves, same as a pasted message
+   always required.
+3. Triaging one (`api/triage.js`) links it to the new ticket, which removes it from the pending
+   list - but the row isn't marked `resolved` until the reply is actually sent
+   (`api/send-reply.js`), which also clears the window and auto-loads the next oldest pending
+   message, turning the flow into a queue.
+
+`api/triage.js` and `api/inbound-email.js` no longer share identical logic the way they briefly
+did - only `api/triage.js` (dashboard-triggered) calls into `api/_lib/triage-engine.js`'s HF
+call/safety-net/ticket-insert pipeline; `api/inbound-email.js` never calls it at all, on purpose.
 
 **How it works**: Resend receives the email, sends a webhook to this endpoint with metadata only
 (from/to/subject - not the body), which fetches the actual body via a separate Resend API call,
-then runs it through the exact same triage pipeline as the dashboard.
+and saves it as a pending tenant message.
 
 **Setup**:
 1. Resend dashboard → **Emails** → **Receiving** → note your free `<id>.resend.app` address (no

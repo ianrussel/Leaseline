@@ -247,6 +247,40 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
         webhook payload's `to` field isn't even read yet (no per-customer routing exists).
         Requires the user to create a new Full-access key in Resend's dashboard and set
         `RESEND_RECEIVING_API_KEY` in both `.env` and Vercel, then redeploy.
+      - **Two more bugs found getting the webhook itself working, same session**: (1) the webhook
+        was registered against the site root (`https://faultline-ruby.vercel.app`), not
+        `/api/inbound-email` - a 405 on every event, found via `GET /webhooks` on Resend's API and
+        fixed with a `PATCH` to the correct endpoint URL; (2) `RESEND_WEBHOOK_SECRET` in `.env` was
+        a placeholder value that never got replaced with the real signing secret from Resend's
+        dashboard - found the same way (`GET /webhooks/{id}` returns `signing_secret`), fixed by
+        copying the real value into `.env` (still needs setting in Vercel too).
+- [x] **Inbound email redesigned: inbox, not auto-ticket, 2026-09-18.** After the above was
+      finally working end-to-end, realized the original design (webhook -> auto-triage -> ticket,
+      no human in the loop at all) was wrong: receiving an email isn't the same as deciding it
+      needs a reply, triage costs a real inference call, and a tenant can send multiple messages
+      about different issues before earlier ones are resolved. Reworked into:
+      - New `tenant_messages` table (`supabase/schema.sql`) - `api/inbound-email.js` now only
+        inserts a `pending` row here; it no longer calls `api/_lib/triage-engine.js` at all.
+      - New `api/tenant-messages.js` - lists the caller's own pending rows, oldest first (a
+        tenant's earlier, still-unresolved message should get worked before a newer one).
+      - `dashboard.html`'s new "Tenant inbox" card lists pending messages and auto-loads the
+        oldest into the "Tenant message" window - `messageInput`/`tenantContactInput` filled in
+        exactly like a manual paste, but nothing is submitted until the manager clicks Triage
+        themselves. Clicking a different row loads that one instead.
+      - `api/triage.js` gained an optional `tenant_message_id` - when the triage came from the
+        inbox, this links the row to the new ticket, which is what makes it disappear from the
+        pending list (`ticket_id is null` in the query) without yet marking it resolved.
+      - `api/send-reply.js` marks the linked `tenant_messages` row `status: 'resolved'` only once
+        a reply is actually sent - not at triage time - and `dashboard.html` clears the window and
+        auto-loads the next oldest pending message right after, turning the whole thing into a
+        FIFO queue: sent -> next one's already waiting.
+      - Real bug caught while wiring this up: the initial `showForSession(initialSession)` call
+        (fires immediately on page load if already signed in) reached into the new
+        `loadTenantMessages()`/`loadIntoWindow()`, which read `messageInput`/`tenantContactInput`/
+        etc - but those `const`s were declared *after* that call in the file, so it threw a
+        temporal-dead-zone `ReferenceError` on any reload while logged in. Same bug class the
+        `ticketsBody` comment already flagged earlier in the file; fixed by moving the session-
+        check block down to after all the form element `const`s.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:
