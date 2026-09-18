@@ -4,3 +4,8 @@ node_modules/
 .env
 .vercel
 .env*
+
+# Supabase project credentials/notes (DB password, project ref, etc.) - session/account-specific,
+# never meant to be committed. Same spirit as leaseline-training's remote-compute/runpod.md.
+supabase.md
+__pycache__/

@@ -43,6 +43,16 @@ updating both places:
 - Categories: `Plumbing`, `Electrical`, `HVAC`, `Appliance`, `Pest`, `Structural`, `Noise`, `General`
 - Urgency: `Emergency`, `High`, `Medium`, `Low`
 
+**Why "Emergency" and not "Urgent" for the top tier:** tenants already overuse "urgent"/"ASAP" as
+filler for objectively low-severity issues (confirmed empirically — see
+`leaseline-training`'s `review_gold.py` scan, where ~20% of `gold.jsonl` rows use "ASAP"/"pronto"
+language on issues correctly labeled Low/Medium). Naming the top label "Urgent" would collide with
+that habit and make the model's output look like it's just echoing tenant tone rather than making
+an independent severity call. "Emergency" is a narrower, objective bucket — immediate safety/
+property-damage risk (see the definitions above) — and matches the term property-management
+software and landlord-tenant law already use for this exact tier, rather than inventing new
+vocabulary property managers would need to re-learn.
+
 ## How this was built
 
 Templated generation (`scripts/generate_dataset.py`), not an LLM API call:
@@ -65,6 +75,31 @@ Low/Medium-urgency row that shouldn't have it — 88/2,000 train rows (4.4%) and
 (4.7%) fell back this way, which is expected and correct, not a failure. Per-row audit trail
 (original vs. rewritten, which fell back) is in `train.diverse.audit.jsonl` /
 `eval.diverse.audit.jsonl` — spot-check before trusting a re-run.
+
+## Manual reinforcement rows (train-only, hand-authored, not from the generator)
+
+`train.diverse.jsonl` has 8 rows appended by hand after the generator/diversify pipeline ran
+(2026-09-17) - not reproducible by re-running `generate_dataset.py`/`diversify_dataset.py`, and
+deliberately not counted in "2,000 template train rows" above. Same "train-only, never gold"
+precedent as `real_examples.jsonl` - `eval.diverse.jsonl`/`gold.jsonl` are untouched.
+
+Why: the first real fine-tuning run (`leaseline-training/runs/seed0`) scored 88% mean field
+accuracy overall (ACCEPT), but reading the actual misses - not just the aggregate number - found
+2 of 3 true-Emergency rows it got wrong shared a specific pattern: casual/deadpan tenant phrasing
+("ain't locking right anymore lmao") on a genuinely dangerous issue (a broken exterior lock -
+explicitly an Emergency example in `docs/knowledge-base.md`). The diversify pass's safety guard
+only blocks *inventing* escalation language on Low/Medium rows - nothing guards the reverse, a
+true Emergency getting paraphrased into minimizing, casual language. That's a plausible reason
+the model leans on tone as a shortcut over content. These 8 rows pair casual/minimizing phrasing
+("no biggie probably lol", "prob nothing but thought i'd mention it") with genuinely dangerous
+content (broken locks, gas smell, a sparking outlet) to push against that shortcut directly.
+
+`ISSUE_BANK` in `generate_dataset.py` also gained 2 new phrase entries (a second Structural
+broken-lock phrasing, a gas-near-water-heater Appliance phrasing) so a *future* full regeneration
+carries this signal forward too - but a full regeneration wasn't run now, since that would
+require re-running the diversify pass and would reset `eval.diverse.jsonl`, invalidating the
+already-reviewed `gold.jsonl` labels (see `leaseline-training`'s task README, "Reviewing
+gold.jsonl") for no benefit - these 8 rows exist for training signal, not eval.
 
 ## Limitations (read before fine-tuning)
 

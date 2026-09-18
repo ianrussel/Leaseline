@@ -8,7 +8,11 @@
     "dev": "npx --yes serve . -l 3000"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0"
+    "@anthropic-ai/sdk": "^0.124.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "resend": "^4.0.0",
+    "svix": "^1.42.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "vercel": "^59.15.0"

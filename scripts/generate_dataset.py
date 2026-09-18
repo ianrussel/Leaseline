@@ -72,6 +72,7 @@ ISSUE_BANK = {
         ("oven door won't close all the way", "Low"),
         ("washing machine leaks a little onto the floor during the spin cycle", "Medium"),
         ("microwave sparks whenever i run it", "High"),
+        ("smell gas near the water heater closet", "Emergency"),
     ],
     "Pest": [
         ("saw a few roaches in the kitchen the last couple nights", "Medium"),
@@ -87,6 +88,7 @@ ISSUE_BANK = {
         ("noticed a crack running across the wall in the {room}", "Medium"),
         ("balcony railing feels loose when i lean on it", "High"),
         ("ceiling tile fell down in the {room}", "Medium"),
+        ("main entrance door lock is broken, doesn't secure at all anymore", "Emergency"),
     ],
     "Noise": [
         ("neighbors upstairs have been really loud every night this week", "Low"),

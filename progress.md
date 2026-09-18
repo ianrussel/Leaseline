@@ -75,6 +75,22 @@ These sit ahead of their phase below because they block everything after them.
       own — **Phase 2 does not wait on this.** Real examples matter more than more synthetic
       volume only in the sense that if/when they show up, add those before generating still more
       synthetic rows — not that fine-tuning is gated on having any.
+      - No live surface captures real tenant messages today — checked 2026-09-17: the landing
+        page's demo tickets are static, the chat widget only answers FAQ questions about
+        Leaseline (not maintenance requests), and the beta intake form (currently hidden anyway)
+        has no free-text field. Real examples right now only arrive via manual outreach, pasted
+        in by hand against `dataset/real_examples_guide.jsonl`'s schema.
+      - [ ] **Once Phase 3 stands up Supabase**, move real-example intake off "SSH + hand-edit a
+            jsonl" onto a Postgres table (Supabase gives a table editor UI for free — no separate
+            vector DB needed just to browse/query rows without shell access). Plain columns
+            (`raw_message`, `category`, `urgency`, `draft_response`, `source`, `reviewed`,
+            `added_to_dataset`, `created_at`) cover it. Add `pgvector` only if/when there's an
+            actual similarity-search need (e.g. "flag messages similar to ones already in
+            gold.jsonl") — not required just to avoid SSH-ing to a file.
+      - [ ] Write a small export script: reviewed DB rows → append to
+            `dataset/real_examples.jsonl` in the existing schema, so `prepare_data.py` and the
+            whole `leaseline-training` pipeline stay unchanged — the DB only replaces *how humans
+            get eyes on new examples*, not the training data format.
 
 ## Phase 2 — Fine-tuning
 
@@ -95,28 +111,147 @@ own `requirements.txt`, own repo. The only cross-repo reference anywhere in that
 - [x] RunPod notebook updated for the standalone repo (no more shared-folder env vars to
       override - that whole risk class is gone now that data/output live in this repo, not a
       shared external volume)
-- [ ] **`train.py`/`evaluate.py` have NOT been run end-to-end** - no GPU on this machine. First
-      RunPod run should be treated as validating this code, not just producing a result
-- [ ] Human review of `data/gold.jsonl` in `leaseline-training` (real product data, not a
-      throwaway benchmark — this is the checkpoint before spending money)
-- [ ] Rent a RunPod GPU (cheapest 16GB+ card is enough — see that repo's README for why) and run
-      `train.py --config config.yaml` — expect well under an hour of GPU time, a few dollars total
-- [ ] Read the ACCEPT/REJECT verdict in `runs/seed0/report.json`
-- [ ] If ACCEPT: adapter is usable — proceed to Phase 3 to actually deploy it. If REJECT: read the
-      per-field breakdown before deciding whether to adjust data, LR, or epochs and re-run
+- [x] **`train.py`/`evaluate.py` run end-to-end on RunPod (RTX 2000 Ada, 16GB), 2026-09-17** -
+      the code itself is now validated, not just the reference pattern it was based on
+- [x] Human review of `data/gold.jsonl` in `leaseline-training` (real product data, not a
+      throwaway benchmark — this is the checkpoint before spending money). Done 2026-09-17 via
+      `review_gold.py`'s heuristic shortlist + a manual read of every flagged row: 5 rows had a
+      real severity/label mismatch and were corrected in `dataset/eval.diverse.jsonl` (jammed
+      disposal, stuck-open gate, breaker-tripping microwave, 2x malfunctioning fire alarm); the
+      other ~30 flagged rows are tenants using "ASAP"/"pronto" on objectively low-severity issues
+      and are correctly labeled as-is — left unchanged on purpose.
+- [x] 8 hand-authored reinforcement rows added to `train.diverse.jsonl` (train-only - see
+      `dataset/README.md`), targeting a specific risk pattern: casual/deadpan tenant phrasing
+      ("no biggie probably lol") paired with genuinely dangerous issues (broken exterior locks,
+      gas/burning smells). The diversify pass's safety guard only blocks *inventing* escalation
+      language on Low/Medium rows - nothing guarded the reverse, a true Emergency read as
+      minimizing/casual - so these rows push against the model treating tone as a shortcut for
+      actual severity instead of the message content.
+- [x] Rent a RunPod GPU (RTX 2000 Ada, 16GB, ~$0.13/hr) and run `train.py --config config.yaml`
+      (`seed0`), 2026-09-17. **ACCEPT**: `mean_field_accuracy` 0.537 -> 0.927 (gain +0.390, bar
+      was 0.05), parse_rate 1.0 both. Per field: category 71.3% -> 98.0%, urgency 36.0% -> 87.3%.
+- [x] Adapter downloaded and verified at `leaseline-training/runs/seed0/adapter/` (7 files,
+      `adapter_model.safetensors` 36.9MB, config confirms rank 16/alpha 32/all-linear against
+      `Qwen2.5-1.5B-Instruct`).
+- [ ] **Known remaining edge cases** (read from `eval_tuned.json`, not just the aggregate score) -
+      urgency is the harder field, and 3 genuinely hard misses remain: garbled slang ("stove
+      stinks flem") with no literal gas/burning keyword, an ambiguous HVAC-vs-Electrical
+      vent-near-water-heater phrasing, and one broken-lock phrasing variant still predicted Low
+      instead of Emergency. Judgment call: good enough to proceed - these read as edge cases, not
+      a systemic pattern, and urgency is a human-confirmed recommendation by design
+      (`knowledge-base.md` section 4), not an autonomous action. Worth a keyword-based
+      safety-net floor in the Phase 3 inference pipeline (force a minimum urgency on hard trigger
+      phrases like "gas smell"/"won't lock", regardless of model output) as cheap insurance,
+      independent of any further retraining.
+- [x] Proceed to Phase 3 to actually deploy the adapter - see `leaseline-training`'s
+      `deploy-inference-endpoint.md` for the step-by-step (merge -> Hugging Face upload ->
+      Inference Endpoint -> wire into `leaseline`'s dashboard). Endpoint live and verified via
+      `curl` as of 2026-09-18 - see Phase 3 below for what's actually done vs. still open.
 
-## Phase 3 — Production inference, dashboard, auth, billing (not started)
+## Phase 3 — Production inference, dashboard, auth, billing (inference live, rest not started)
 
-Deliberately not started yet — needs a fine-tuned model to actually deploy (Phase 2) and/or
-confirmed demand (Phase 0 gate) before it's worth building. Needs several new accounts only the
-project owner can create.
+Inference deployment done ahead of the Phase 0 demand gate since Phase 2 produced an ACCEPT
+adapter worth standing up; dashboard/auth/billing still deliberately wait on confirmed demand.
 
-- [ ] Hugging Face account + upload the fine-tuned adapter
-- [ ] Deploy a Hugging Face Inference Endpoint (scale-to-zero, per the original cost plan)
-- [ ] Supabase project (auth + user accounts)
+- [x] Hugging Face account + upload the fine-tuned adapter. Merged (LoRA -> standalone model via
+      `merge_adapter.py`) rather than deployed as a separate adapter - see
+      `deploy-inference-endpoint.md`'s step 1 for the tradeoff. Pushed to a **private** repo,
+      `<username>/leaseline-triage-v0`.
+- [x] Deploy a Hugging Face Inference Endpoint (scale-to-zero, per the original cost plan) - live
+      and confirmed working via a direct `curl` request as of 2026-09-18. Two real deploy bugs
+      hit and fixed along the way, now permanently handled inside `merge_adapter.py` so a future
+      re-deploy won't rediscover either:
+      - **`Task` defaulted to `Custom`**, which crashed the container with `KeyError: "Unknown
+        task custom"` - fine for a standard architecture like `Qwen2ForCausalLM`, just needed
+        `Task` explicitly set to `Text Generation` on the endpoint, plus `merge_adapter.py` now
+        writes a `README.md` with `pipeline_tag: text-generation` so the *next* endpoint's task
+        auto-detects correctly instead of defaulting to Custom at all.
+      - **Tokenizer load crash** (`AttributeError: 'list' object has no attribute 'keys'`) -
+        Qwen's base `tokenizer_config.json` ships an `extra_special_tokens` *list* of unused
+        Qwen2.5-**VL** (vision-language) tokens the deployed container's `transformers` version
+        expects as a *dict*. `merge_adapter.py` now drops that key entirely on merge (harmless -
+        `eos_token`/`<|im_start|>` etc. still work via their own fields / `tokenizer.json`).
+- [x] Wire the endpoint into an actual product surface - `api/triage.js` added, 2026-09-18, same
+      shape as `api/chat.js`. Handles the exact chat-template prompt shape, tolerant JSON
+      extraction, a distinct 503 for scale-to-zero cold starts (vs. a generic error), and a
+      narrow keyword safety-net floor (forces minimum `Emergency` on gas smell/sparking/flooding/
+      broken-lock phrasing - deliberately not generic tone words like "ASAP", per the training
+      data review's finding that tenants use those as filler for trivial issues too). Requires
+      `HF_ENDPOINT_URL`/`HF_TOKEN` set in Vercel's dashboard (documented in `.env.example`) - not
+      yet actually set there, so this exists in code but isn't live in production yet.
+- [x] Build the actual dashboard UI - `dashboard.html`, 2026-09-18, restyled onto a Bootstrap
+      admin theme (assets/admin-theme/) 2026-09-19 for a less "hand-rolled" look, brand fonts/
+      colors kept consistent with `index.html`. Paste a message → see it triaged → edit the draft
+      reply → **choose either** "Send via email" (`mailto:`, prefilled, tenant still reviews/sends
+      it themselves in their own mail client - no transactional email service needed for this) or
+      "Copy reply". Both actions are recorded against the ticket (see persistence below). Also
+      unlinked/`noindex` on top of the auth below.
+- [x] Supabase project (auth) - **minimal scope, real auth for one user, not a full account
+      system**, fully set up and working end-to-end as of 2026-09-18. `api/triage.js` verifies the
+      caller's session token server-side (`supabase.auth.getUser()`, extracted into
+      `api/_lib/auth.js` and reused by every endpoint below) before doing anything - a login
+      screen alone isn't real protection since the API itself has to check too. No signup flow -
+      the one admin user was added manually via the Supabase dashboard.
+- [x] **Ticket persistence** - `supabase/schema.sql`'s `tickets` table, 2026-09-19. Every triage is
+      now a real row (ticket number, timestamp, category/urgency, the model's original draft vs.
+      whatever was actually sent/copied after edits, status), not a stateless API response that
+      vanishes on refresh - closes the gap against `knowledge-base.md`'s own claim that tickets
+      are "stored so the property manager can review their history." `dashboard.html` shows a
+      recent-tickets table. New endpoints: `api/tickets.js` (history), `api/ticket-action.js`
+      (records send/copy + the final edited text). **Fixed a real access-control gap, same day**:
+      both endpoints originally had no per-user scoping at all - `api/tickets.js` returned every
+      user's tickets to whoever was logged in, and `api/ticket-action.js` would update any ticket
+      by id with no ownership check. Both now filter/require `created_by = <the caller>` (already
+      set correctly at creation time in `api/triage.js`, so no backfill needed) - deliberately
+      different from `api/admin-tickets.js`, which correctly shows candidates across all users,
+      since that's the entire point of the admin review panel.
+- [x] **"Send via email" now actually sends** - `api/send-reply.js`, 2026-09-19. The original
+      `mailto:` version recorded `status: 'sent'` the instant the button was clicked, regardless
+      of whether a mail client even opened or anything was ever delivered - a real gap between
+      the status and reality. Now sends server-side via Resend (same account/key already used for
+      the training-candidate notification email) with a confirm dialog first, and only marks
+      `sent` after a confirmed successful send. Verifies ticket ownership before sending, not
+      after, so a wrong/foreign ticket id can't trigger a real email before the check runs.
+- [x] **Inbound email - the "future inbox connection" tier from `knowledge-base.md`'s own
+      roadmap, done** - `api/inbound-email.js`, 2026-09-19. A tenant's email now becomes a ticket
+      automatically, no copy-pasting into `dashboard.html` required (that flow still exists,
+      unchanged, as an alternative). Refactored the shared logic into
+      `api/_lib/triage-engine.js` so `api/triage.js` and this both call the identical HF/safety-
+      net/ticket-insert path rather than two copies drifting apart. Uses Resend's inbound email
+      receiving (free `<id>.resend.app` address, no DNS setup needed to start) - webhook gives
+      metadata only, body fetched via a separate Resend API call, signature verified via `svix`
+      (new dependency) before anything is processed. **No per-customer routing yet** -
+      `INBOUND_EMAIL_OWNER` is a single hardcoded account every received email attributes to;
+      real per-customer routing needs an actual multi-account system first (Phase 3/4).
+- [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
+      staying permanently empty, 2026-09-19:
+      - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:
+        Vercel's Hobby plan caps cron at once/day, an hourly schedule fails at deploy time on that
+        tier. Asks Claude (reusing the existing `ANTHROPIC_API_KEY`, no new account) whether each
+        unanalyzed ticket is redundant with already-well-covered patterns or a genuinely useful
+        candidate, so not every raw message gets blindly saved as a training example.
+      - Considered Celery for this and rejected it: Celery needs a persistent worker process,
+        which is the opposite of what serverless is, and it's Python-only in an all-Node project.
+        Vercel's own newer "Vercel Queues" primitive was the tempting native answer but is Beta,
+        needs special permissions, and assumes Next.js App Router conventions this repo doesn't
+        use - cron is the stable, GA fit for genuinely time-triggered (not user-triggered) work.
+      - `admin.html` - a separate auth-gated page (same login as `dashboard.html`) listing
+        candidates, where category/urgency/draft can be corrected before approving. Status flags
+        exactly as requested: `unanalyzed` → `not_candidate` or `candidate` → `added_to_train`
+        ("updated") or `added_to_gold` ("pushed to gold"). New endpoints: `api/admin-tickets.js`,
+        `api/admin-update-ticket.js`.
+      - **Honest limitation, not automated**: a Vercel function can't write to this git checkout,
+        so admin approval only updates the database - `scripts/export_training_candidates.py` is
+        the manual (idempotent, safe to re-run) step that actually appends approved rows into
+        `dataset/real_examples.jsonl` (train) or `dataset/gold_candidates_to_review.jsonl` (gold
+        candidates land here, not directly in `eval.diverse.jsonl` - that file staying a fixed,
+        deliberately-hand-edited benchmark was the whole point of the earlier gold.jsonl review).
+      - New env vars: `CRON_SECRET` (verifies cron requests are really from Vercel),
+        `ADMIN_EMAIL`, `RESEND_API_KEY` (new account - free tier, needed because Formspree's
+        form→email model doesn't fit "send FROM our code TO an address in `.env`").
 - [ ] Stripe account (billing)
-- [ ] Build the actual dashboard UI (paste/forward a message → see it triaged, approve/edit/send)
-- [ ] Wire dashboard → inference endpoint → auth → billing
+- [ ] Wire dashboard → inference endpoint → auth → billing - **auth part done above**; billing
+      gating still not started (no Stripe account, no subscription check anywhere yet)
 - [ ] Deploy dashboard on `app.<domain>` (same root domain as the marketing site, subdomain split
       — not a second domain; see chat history for the reasoning)
 

@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en" data-layout-mode="default" data-topbar-color="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leaseline - Training review (admin)</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔧</text></svg>">
+
+<link href="assets/admin-theme/css/bootstrap.min.css" rel="stylesheet">
+<link href="assets/admin-theme/css/app.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* Bootstrap's display utilities (d-flex, d-block, etc.) set `display` with !important, which
+     otherwise beats the browser's default `[hidden] { display: none }` rule on any element that
+     has both - #loginScreen and #notAuthorizedScreen both use d-flex for centering, so without
+     this the login/not-authorized screens never actually went away and the real page rendered
+     messily underneath instead of replacing them. Being later in the cascade (after
+     bootstrap.min.css/app.min.css) is what lets this win at equal specificity. */
+  [hidden] { display: none !important; }
+
+  .badge-emergency { background: #b23a2a; color: #f8ede9; }
+  .badge-high { background: #c97a2b; color: #1c130a; }
+  .badge-medium { background: #b99a2e; color: #1c1608; }
+  .badge-low { background: #5a6e8c; color: #eef1f6; }
+  #loginScreen { min-height: 100vh; }
+  .brand-wordmark { font-family: 'Big Shoulders Display', sans-serif; font-weight: 900; letter-spacing: .02em; }
+  .badge, .page-title, .text-mono { font-family: 'IBM Plex Mono', monospace; }
+  .candidate-card.status-added_to_train { opacity: .6; }
+  .candidate-card.status-added_to_gold { opacity: .6; }
+</style>
+</head>
+<body>
+
+<!-- Login is the same Supabase auth as dashboard.html, but reaching the actual panel below also
+     requires app_metadata.role === "admin" (checked here AND, more importantly, server-side in
+     api/admin-tickets.js / api/admin-update-ticket.js via requireAdmin() - this client-side check
+     is just for a clean message, never the real security boundary, since anyone can edit page
+     JS). Without this, any signed-in account - including a future real customer once signup
+     exists - could otherwise reach this page. See api/_lib/auth.js's requireAdmin for the check
+     and scripts/set-admin-role.js for how to grant it - the Supabase dashboard has no editable
+     app_metadata field, this has to go through the Admin API. -->
+<div id="loginScreen" class="d-flex align-items-center justify-content-center">
+  <div class="card shadow-sm" style="max-width: 380px; width: 100%;">
+    <div class="card-body p-4">
+      <h4 class="mb-1 brand-wordmark fs-3">LEASELINE</h4>
+      <p class="text-muted small mb-4">Training review - admin only. Sign in to continue.</p>
+      <form id="loginForm">
+        <div class="mb-3">
+          <label class="form-label" for="email">Email</label>
+          <input type="email" class="form-control" id="email" required autocomplete="username">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" class="form-control" id="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary w-100" id="loginBtn">Sign in</button>
+      </form>
+      <div class="alert alert-danger mt-3 py-2 px-3 small mb-0" id="loginError" hidden></div>
+    </div>
+  </div>
+</div>
+
+<div id="notAuthorizedScreen" class="d-flex align-items-center justify-content-center" hidden>
+  <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+    <div class="card-body p-4">
+      <h4 class="mb-1 brand-wordmark fs-3">LEASELINE</h4>
+      <p class="text-muted mb-3">You're signed in, but this account isn't set up as an admin.</p>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="notAuthLogoutBtn">Sign out</button>
+    </div>
+  </div>
+</div>
+
+<div id="wrapper" hidden>
+  <div class="app-menu">
+    <div class="logo-box">
+      <a href="dashboard.html" class="logo-light d-flex align-items-center gap-2 text-decoration-none">
+        <span class="brand-wordmark fs-5 text-body">🔧 LEASELINE</span>
+      </a>
+    </div>
+    <div class="scrollbar">
+      <ul class="menu">
+        <li class="menu-title">General</li>
+        <li class="menu-item">
+          <a href="dashboard.html" class="menu-link">
+            <span class="menu-icon"><i data-feather="tool"></i></span>
+            <span class="menu-text">Triage</span>
+          </a>
+        </li>
+        <li class="menu-item menuitem-active">
+          <a href="#" class="menu-link active">
+            <span class="menu-icon"><i data-feather="check-square"></i></span>
+            <span class="menu-text">Training review</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="content-page">
+    <div class="navbar-custom">
+      <div class="topbar">
+        <div class="topbar-menu d-flex align-items-center gap-1">
+          <button type="button" class="button-toggle-menu" id="sidebarToggle" aria-label="Toggle menu">
+            <i data-feather="menu"></i>
+          </button>
+          <h4 class="page-title d-none d-md-block mb-0 ms-1">Training review</h4>
+        </div>
+        <ul class="topbar-menu d-flex align-items-center mb-0">
+          <li class="d-flex align-items-center gap-2 me-2">
+            <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-secondary text-white flex-shrink-0"
+                  style="width: 28px; height: 28px;">
+              <i data-feather="user" style="width: 16px; height: 16px;"></i>
+            </span>
+            <span class="text-mono small text-muted d-none d-sm-inline-block text-truncate" style="max-width: 160px;" id="userEmail"></span>
+          </li>
+          <li><button type="button" class="btn btn-sm btn-outline-secondary" id="logoutBtn">Sign out</button></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="container-fluid">
+
+        <div class="alert alert-secondary small">
+          Real tenant messages the daily analysis job (<code>api/analyze-tickets.js</code>) flagged
+          as worth a look - redundant ones are auto-skipped and never show up here. Edit any field
+          before approving; approving only updates the database, it doesn't touch
+          <code>dataset/real_examples.jsonl</code> or <code>eval.diverse.jsonl</code> directly -
+          run <code>scripts/export_training_candidates.py</code> afterward for that.
+        </div>
+
+        <div id="candidatesContainer">
+          <p class="text-muted small">Loading...</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+  const SUPABASE_URL = 'https://pgoritqbhawsboikmrcz.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_s9yAHvQxKgym0hY0e16xaA_DP6__mJj';
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  if (window.feather) window.feather.replace();
+
+  const loginScreen = document.getElementById('loginScreen');
+  const loginForm = document.getElementById('loginForm');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginError = document.getElementById('loginError');
+  const notAuthorizedScreen = document.getElementById('notAuthorizedScreen');
+  const notAuthLogoutBtn = document.getElementById('notAuthLogoutBtn');
+  const wrapper = document.getElementById('wrapper');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  const candidatesContainer = document.getElementById('candidatesContainer');
+  const userEmail = document.getElementById('userEmail');
+
+  notAuthLogoutBtn.addEventListener('click', () => supabase.auth.signOut());
+
+  sidebarToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-enable'));
+
+  async function authedFetch(url, options = {}) {
+    const { data: { session } } = await supabase.auth.getSession();
+    return fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+        ...(options.headers || {}),
+      },
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  const CATEGORIES = ['Plumbing', 'Electrical', 'HVAC', 'Appliance', 'Pest', 'Structural', 'Noise', 'General'];
+  const URGENCIES = ['Emergency', 'High', 'Medium', 'Low'];
+
+  function optionsHtml(values, selected) {
+    return values.map((v) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${v}</option>`).join('');
+  }
+
+  async function loadCandidates() {
+    try {
+      const res = await authedFetch('/api/admin-tickets');
+      if (!res.ok) throw new Error('failed');
+      const tickets = await res.json();
+      if (!tickets.length) {
+        candidatesContainer.innerHTML = '<p class="text-muted small">No training candidates yet.</p>';
+        return;
+      }
+      candidatesContainer.innerHTML = tickets.map((t) => `
+        <div class="card mb-3 candidate-card status-${t.training_status}" data-id="${t.id}">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <span class="text-mono text-muted small">#${t.ticket_number} - ${new Date(t.created_at).toLocaleString()}</span>
+              <span class="badge bg-secondary">${t.training_status}</span>
+            </div>
+            <p class="mb-3">${escapeHtml(t.raw_message)}</p>
+            <div class="row g-2 mb-2">
+              <div class="col-12 col-sm-6">
+                <label class="form-label small">Category</label>
+                <select class="form-select form-select-sm category-input">${optionsHtml(CATEGORIES, t.category)}</select>
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label small">Urgency</label>
+                <select class="form-select form-select-sm urgency-input">${optionsHtml(URGENCIES, t.urgency)}</select>
+              </div>
+            </div>
+            <label class="form-label small">Draft response</label>
+            <textarea class="form-control form-control-sm mb-3 draft-input" rows="3">${escapeHtml(t.draft_response || '')}</textarea>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-success approve-train-btn">Add to training set</button>
+              <button type="button" class="btn btn-sm btn-warning approve-gold-btn">Add to gold</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary reject-btn">Not useful</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      candidatesContainer.querySelectorAll('.candidate-card').forEach((card) => {
+        const id = card.dataset.id;
+        const getFields = () => ({
+          category: card.querySelector('.category-input').value,
+          urgency: card.querySelector('.urgency-input').value,
+          draft_response: card.querySelector('.draft-input').value,
+        });
+        const act = async (training_status) => {
+          await authedFetch('/api/admin-update-ticket', {
+            method: 'POST',
+            body: JSON.stringify({ id, training_status, ...getFields() }),
+          });
+          loadCandidates();
+        };
+        card.querySelector('.approve-train-btn').addEventListener('click', () => act('added_to_train'));
+        card.querySelector('.approve-gold-btn').addEventListener('click', () => act('added_to_gold'));
+        card.querySelector('.reject-btn').addEventListener('click', () => act('not_candidate'));
+      });
+    } catch (err) {
+      candidatesContainer.innerHTML = '<p class="text-muted small">Couldn\'t load training candidates.</p>';
+    }
+  }
+
+  function showForSession(session) {
+    if (session && session.user?.app_metadata?.role === 'admin') {
+      loginScreen.hidden = true;
+      notAuthorizedScreen.hidden = true;
+      wrapper.hidden = false;
+      userEmail.textContent = session.user.email;
+      loadCandidates();
+    } else if (session) {
+      // Signed in, but not an admin - the real enforcement is server-side (requireAdmin() in
+      // api/_lib/auth.js); this is just a clean message instead of a panel that silently 403s.
+      loginScreen.hidden = true;
+      notAuthorizedScreen.hidden = false;
+      wrapper.hidden = true;
+    } else {
+      loginScreen.hidden = false;
+      notAuthorizedScreen.hidden = true;
+      wrapper.hidden = true;
+    }
+  }
+
+  const { data: { session: initialSession } } = await supabase.auth.getSession();
+  showForSession(initialSession);
+  supabase.auth.onAuthStateChange((_event, session) => showForSession(session));
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginError.hidden = true;
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Signing in...';
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      loginError.textContent = error.message;
+      loginError.hidden = false;
+    }
+    loginBtn.disabled = false;
+    loginBtn.textContent = 'Sign in';
+  });
+
+  logoutBtn.addEventListener('click', () => supabase.auth.signOut());
+</script>
+</body>
+</html>
