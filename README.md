@@ -229,8 +229,18 @@ then runs it through the exact same triage pipeline as the dashboard.
 2. Resend dashboard → **Webhooks** → **Add endpoint** → your deployed URL +
    `/api/inbound-email` → subscribe to the `email.received` event → copy the signing secret into
    `RESEND_WEBHOOK_SECRET`.
-3. Set `INBOUND_EMAIL_OWNER` to the email of the Supabase user tickets should be created under.
-4. `npm install` (pulls in the new `svix` dependency, used for webhook signature verification).
+3. Resend dashboard → **API Keys** → **Create API Key** → permission **Full access** (not
+   "Sending access" - that's what the existing `RESEND_API_KEY` is) → paste it into
+   `RESEND_RECEIVING_API_KEY`. This has to be a separate key from `RESEND_API_KEY`: fetching a
+   received email's body (`GET /emails/receiving/{id}`) 401s with "This API key is restricted to
+   only send emails" against a Sending-access key, and widening the existing sending-only key to
+   Full access would give the send-only code paths (`analyze-tickets.js`, `send-reply.js`) more
+   privilege than they need.
+4. Set `INBOUND_EMAIL_OWNER` to the email of the Supabase user tickets should be created under.
+5. `npm install` (pulls in the new `svix` dependency, used for webhook signature verification).
+
+Remember to set `RESEND_RECEIVING_API_KEY` in Vercel's dashboard too (Project Settings →
+Environment Variables) and redeploy - like every other env var here, `.env` only covers local dev.
 
 **No per-customer routing yet** - every email received, regardless of which address it was sent
 to, becomes a ticket under the single account in `INBOUND_EMAIL_OWNER`. Real multi-customer

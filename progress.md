@@ -223,6 +223,30 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
       (new dependency) before anything is processed. **No per-customer routing yet** -
       `INBOUND_EMAIL_OWNER` is a single hardcoded account every received email attributes to;
       real per-customer routing needs an actual multi-account system first (Phase 3/4).
+- [x] **Two production bugs found and fixed after deploying the above, 2026-09-18**:
+      - **"model returned unparseable output" in prod, worked fine locally.** Root cause in
+        `api/_lib/triage-engine.js`'s `extractJsonObj`: a multi-paragraph `draft_response`
+        containing a literal, unescaped newline is valid-looking to a human but invalid JSON (raw
+        control characters must be escaped inside a JSON string) - `JSON.parse` correctly rejected
+        it. Rewrote the brace-depth scanner to track whether it's currently inside a quoted
+        string, for two reasons: (1) a `{`/`}` inside string content must not be counted as
+        structural, and (2) raw `\n`/`\r`/`\t` found *inside* a string are now escaped before
+        parsing. Verified against the exact real failing payload from the error log. A matching
+        latent bug likely exists in `leaseline-training`'s Python `evaluate.py` (`extract_json_obj`
+        there is the same greedy-ish approach) - not fixed, out of scope, flagged for later.
+      - **Inbound email webhook configured correctly in Vercel but no tickets appeared.** Not an
+        env var omission - confirmed via direct `curl` to Resend's API that `RESEND_API_KEY`
+        (sending-access only) 401s with `"This API key is restricted to only send emails"` when
+        `api/inbound-email.js` calls `GET /emails/receiving/{id}` to fetch a received email's
+        body. Resend API keys are either "Full access" or "Sending access" - no in-between, and
+        the existing key was created sending-only for `analyze-tickets.js`/`send-reply.js`. Fixed
+        by introducing a separate `RESEND_RECEIVING_API_KEY` (Full access) rather than widening
+        the existing key, so the sending-only code paths keep least-privilege. **Also answered a
+        specific question**: the `<id>.resend.app` receiving address shown in Resend's dashboard
+        is not something our code needs - it's purely a Resend-side routing setting, and the
+        webhook payload's `to` field isn't even read yet (no per-customer routing exists).
+        Requires the user to create a new Full-access key in Resend's dashboard and set
+        `RESEND_RECEIVING_API_KEY` in both `.env` and Vercel, then redeploy.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:

@@ -29,7 +29,13 @@ export const config = {
   },
 };
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
+// Deliberately a SEPARATE key from RESEND_API_KEY (used elsewhere for sending only) - Resend API
+// keys are either "Full access" (can read received emails) or "Sending access" (send-only, can't
+// read anything). Using one Full-access key everywhere would hand the sending code paths
+// (analyze-tickets.js, send-reply.js) more privilege than they need. This one specifically must
+// be Full access, or the GET /emails/receiving/{id} call below 401s with "This API key is
+// restricted to only send emails" - the exact failure mode that motivated this split.
+const RESEND_RECEIVING_API_KEY = process.env.RESEND_RECEIVING_API_KEY;
 const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET;
 const INBOUND_EMAIL_OWNER = process.env.INBOUND_EMAIL_OWNER;
 
@@ -65,8 +71,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!RESEND_API_KEY || !RESEND_WEBHOOK_SECRET || !INBOUND_EMAIL_OWNER || !supabaseAdmin) {
-    console.error("inbound-email: not fully configured (RESEND_API_KEY / RESEND_WEBHOOK_SECRET / INBOUND_EMAIL_OWNER / Supabase env vars).");
+  if (!RESEND_RECEIVING_API_KEY || !RESEND_WEBHOOK_SECRET || !INBOUND_EMAIL_OWNER || !supabaseAdmin) {
+    console.error("inbound-email: not fully configured (RESEND_RECEIVING_API_KEY / RESEND_WEBHOOK_SECRET / INBOUND_EMAIL_OWNER / Supabase env vars).");
     res.status(500).json({ error: "Not configured yet." });
     return;
   }
@@ -101,7 +107,7 @@ export default async function handler(req, res) {
   let emailContent;
   try {
     const resp = await fetch(`https://api.resend.com/emails/receiving/${email_id}`, {
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}` },
+      headers: { Authorization: `Bearer ${RESEND_RECEIVING_API_KEY}` },
     });
     if (!resp.ok) {
       console.error("inbound-email: failed to fetch received email content:", resp.status, await resp.text());
