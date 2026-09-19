@@ -281,6 +281,39 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
         temporal-dead-zone `ReferenceError` on any reload while logged in. Same bug class the
         `ticketsBody` comment already flagged earlier in the file; fixed by moving the session-
         check block down to after all the form element `const`s.
+- [x] **Send status stuck at "new" investigated - not a bug.** Queried `tickets` directly and
+      cross-checked Resend's send log: tickets created via the old paste flow all correctly showed
+      `status: 'sent'` with a matching delivered record in Resend; tickets created via the new
+      inbox flow were stuck at `new` with `updated_at === created_at` (no DB write ever happened)
+      *and* no Resend record at all for that recipient. Conclusion: "Send via email" was never
+      actually completed for those specific test tickets (likely abandoned mid-test while
+      debugging the webhook itself) - `api/send-reply.js`'s update-to-`sent` logic is the same code
+      already proven working on the paste-flow tickets, no fix needed.
+- [x] **Multi-customer inbound email routing, 2026-09-19.** Real question raised while testing
+      inbound email: Resend's sandbox `resend.dev` sending domain can only send to the account's
+      own verified email (separate, deferred issue) - but the more structural one was "we'll have
+      multiple property-manager customers, each needs tenants emailing a dedicated address that
+      routes to THEM, not one hardcoded owner." Until now `INBOUND_EMAIL_OWNER` was a single env
+      var every received email attributed to - fine for one customer, wrong for more than one.
+      - New `customers` table (`supabase/schema.sql`): `name`, unique `local_part`, `owner_user_id`.
+        Resend's free `<id>.resend.app` address (and a future verified custom domain, same way)
+        accepts any local-part sent to it - multiple customers can share one receiving domain
+        because the local-part, not the domain, is what's actually unique per customer.
+      - `api/inbound-email.js` no longer reads `INBOUND_EMAIL_OWNER` at all - it now reads the
+        webhook's `to`/`received_for` field, extracts the local-part, and looks up the owning
+        customer (`findCustomerByAddress`). An email to an unrecognized local-part is dropped
+        (logged, 200 so Resend doesn't retry forever) rather than falling back to a default owner.
+      - New `api/admin-customers.js` (admin-only) - GET/POST/DELETE on `customers`, resolving
+        `owner_email` to a real Supabase user id via the Admin API (`listUsers()`, same pattern as
+        the old `findOwnerUserId`) since there's still no signup flow - an owner must already be an
+        existing Supabase user.
+      - `admin.html` gained a "Customers" panel (table + add form) so this doesn't require running
+        a script by hand, unlike `scripts/set-admin-role.js`'s pattern for admin grants.
+      - Removed `INBOUND_EMAIL_OWNER` from `.env`/`.env.example` entirely - clean cutover, not a
+        fallback alongside the new table, to avoid two parallel routing mechanisms getting out of
+        sync. **Breaking for existing local testing**: the `test` local-part used throughout this
+        session's manual testing needs to be (re-)added via `admin.html`'s new panel before inbound
+        email works again.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:

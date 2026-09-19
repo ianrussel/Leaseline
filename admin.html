@@ -137,6 +137,52 @@
           <p class="text-muted small">Loading...</p>
         </div>
 
+        <div class="card mt-4">
+          <div class="card-body">
+            <h5 class="card-title mb-2">Customers</h5>
+            <p class="text-muted small mb-3">
+              Each row's local-part routes inbound email - a tenant emailing
+              <code>&lt;local-part&gt;@&lt;your Resend receiving domain&gt;</code> becomes a pending
+              message in that customer's owner's inbox (see api/inbound-email.js). Owner must
+              already be a Supabase user (Authentication → Users → Add user) - there's no signup
+              flow yet.
+            </p>
+            <div class="table-responsive mb-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr class="text-muted text-mono small">
+                    <th>Name</th>
+                    <th>Local-part</th>
+                    <th>Owner</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="customersBody">
+                  <tr><td colspan="4" class="text-muted small">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <form id="customerForm" class="row g-2 align-items-end">
+              <div class="col-12 col-sm-4">
+                <label class="form-label small" for="customerName">Name</label>
+                <input type="text" class="form-control form-control-sm" id="customerName" placeholder="Sunset Apartments" required>
+              </div>
+              <div class="col-12 col-sm-3">
+                <label class="form-label small" for="customerLocalPart">Local-part</label>
+                <input type="text" class="form-control form-control-sm" id="customerLocalPart" placeholder="sunsetapartments" required>
+              </div>
+              <div class="col-12 col-sm-3">
+                <label class="form-label small" for="customerOwnerEmail">Owner email</label>
+                <input type="email" class="form-control form-control-sm" id="customerOwnerEmail" placeholder="owner@example.com" required>
+              </div>
+              <div class="col-12 col-sm-2">
+                <button type="submit" class="btn btn-primary btn-sm w-100" id="addCustomerBtn">Add</button>
+              </div>
+            </form>
+            <div class="alert alert-danger mt-3 py-2 px-3 small mb-0" id="customerError" hidden></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -165,6 +211,13 @@
   const sidebarToggle = document.getElementById('sidebarToggle');
   const candidatesContainer = document.getElementById('candidatesContainer');
   const userEmail = document.getElementById('userEmail');
+  const customersBody = document.getElementById('customersBody');
+  const customerForm = document.getElementById('customerForm');
+  const customerName = document.getElementById('customerName');
+  const customerLocalPart = document.getElementById('customerLocalPart');
+  const customerOwnerEmail = document.getElementById('customerOwnerEmail');
+  const addCustomerBtn = document.getElementById('addCustomerBtn');
+  const customerError = document.getElementById('customerError');
 
   notAuthLogoutBtn.addEventListener('click', () => supabase.auth.signOut());
 
@@ -254,6 +307,69 @@
     }
   }
 
+  async function loadCustomers() {
+    try {
+      const res = await authedFetch('/api/admin-customers');
+      if (!res.ok) throw new Error('failed');
+      const customers = await res.json();
+      if (!customers.length) {
+        customersBody.innerHTML = '<tr><td colspan="4" class="text-muted small">No customers yet.</td></tr>';
+        return;
+      }
+      customersBody.innerHTML = customers.map((c) => `
+        <tr data-id="${c.id}">
+          <td>${escapeHtml(c.name)}</td>
+          <td class="text-mono small">${escapeHtml(c.local_part)}</td>
+          <td class="small text-muted">${escapeHtml(c.owner_email || '(unknown user)')}</td>
+          <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-customer-btn">Remove</button></td>
+        </tr>
+      `).join('');
+
+      customersBody.querySelectorAll('.remove-customer-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('tr');
+          if (!confirm('Remove this customer? Inbound email to their address will stop being routed - existing tickets are unaffected.')) return;
+          await authedFetch('/api/admin-customers', { method: 'DELETE', body: JSON.stringify({ id: row.dataset.id }) });
+          loadCustomers();
+        });
+      });
+    } catch (err) {
+      customersBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Couldn\'t load customers.</td></tr>';
+    }
+  }
+
+  customerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    customerError.hidden = true;
+    addCustomerBtn.disabled = true;
+    addCustomerBtn.textContent = 'Adding...';
+
+    try {
+      const res = await authedFetch('/api/admin-customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: customerName.value.trim(),
+          local_part: customerLocalPart.value.trim(),
+          owner_email: customerOwnerEmail.value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        customerError.textContent = data.error || `Request failed (${res.status})`;
+        customerError.hidden = false;
+        return;
+      }
+      customerForm.reset();
+      loadCustomers();
+    } catch (err) {
+      customerError.textContent = 'Network error - is the server running?';
+      customerError.hidden = false;
+    } finally {
+      addCustomerBtn.disabled = false;
+      addCustomerBtn.textContent = 'Add';
+    }
+  });
+
   function showForSession(session) {
     if (session && session.user?.app_metadata?.role === 'admin') {
       loginScreen.hidden = true;
@@ -261,6 +377,7 @@
       wrapper.hidden = false;
       userEmail.textContent = session.user.email;
       loadCandidates();
+      loadCustomers();
     } else if (session) {
       // Signed in, but not an admin - the real enforcement is server-side (requireAdmin() in
       // api/_lib/auth.js); this is just a clean message instead of a panel that silently 403s.

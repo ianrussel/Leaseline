@@ -15,11 +15,9 @@
 //      DNS/domain setup needed to start) or configure a custom domain's MX record.
 //   2. Resend dashboard -> Webhooks -> add this endpoint's deployed URL, subscribe to
 //      "email.received", copy the signing secret into RESEND_WEBHOOK_SECRET.
-//   3. Set INBOUND_EMAIL_OWNER to the email of the Supabase user tickets should be created under.
-//      There's no per-tenant/per-customer routing yet - everything received goes to this one
-//      account, which is correct for the current single-tenant stage. Real multi-customer routing
-//      (matching the `to` address to a specific customer) is Phase 3/4 work once there's a real
-//      account system.
+//   3. Add each customer via admin.html's "Customers" panel (name + a unique local-part, e.g.
+//      "sunsetapartments" for sunsetapartments@<id>.resend.app) - see findCustomerByAddress below
+//      for why the local-part, not the domain, is what does the routing.
 //
 // Body parsing disabled on purpose (see config export below) - signature verification needs the
 // EXACT raw bytes Resend sent; re-serializing an already-parsed JS object would not reliably
@@ -42,7 +40,6 @@ export const config = {
 // restricted to only send emails" - the exact failure mode that motivated this split.
 const RESEND_RECEIVING_API_KEY = process.env.RESEND_RECEIVING_API_KEY;
 const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET;
-const INBOUND_EMAIL_OWNER = process.env.INBOUND_EMAIL_OWNER;
 
 function readRawBody(req) {
   // Accumulating Buffer chunks and concatenating once at the end (rather than `body += chunk`)
@@ -57,17 +54,27 @@ function readRawBody(req) {
   });
 }
 
-// listUsers() paginates (50/page) - fine at this project's current scale (a handful of users).
-// No caching across invocations - correctness (picking up a changed owner immediately) matters
-// more than saving one cheap lookup call per inbound email, which is a low-volume event anyway.
-async function findOwnerUserId() {
-  const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+// Routes by the LOCAL-PART of whichever address the email was sent to (e.g. "sunsetapartments" out
+// of "sunsetapartments@uuziluuamb.resend.app"), not the full address - multiple customers share
+// the same receiving domain (Resend's free <id>.resend.app address accepts any local-part sent to
+// it, same would be true of a future verified custom domain), so the local-part is what's actually
+// unique per customer. No caching across invocations - a newly-added customer (admin.html) should
+// take effect on the very next email, not after some TTL expires.
+async function findCustomerByAddress(toAddress) {
+  const localPart = (toAddress || "").split("@")[0].trim().toLowerCase();
+  if (!localPart) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("customers")
+    .select("id, owner_user_id")
+    .eq("local_part", localPart)
+    .maybeSingle();
+
   if (error) {
-    console.error("inbound-email: failed to list users:", error.message);
+    console.error("inbound-email: failed to look up customer:", error.message);
     return null;
   }
-  const user = data.users.find((u) => u.email === INBOUND_EMAIL_OWNER);
-  return user ? user.id : null;
+  return data;
 }
 
 export default async function handler(req, res) {
@@ -76,8 +83,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!RESEND_RECEIVING_API_KEY || !RESEND_WEBHOOK_SECRET || !INBOUND_EMAIL_OWNER || !supabaseAdmin) {
-    console.error("inbound-email: not fully configured (RESEND_RECEIVING_API_KEY / RESEND_WEBHOOK_SECRET / INBOUND_EMAIL_OWNER / Supabase env vars).");
+  if (!RESEND_RECEIVING_API_KEY || !RESEND_WEBHOOK_SECRET || !supabaseAdmin) {
+    console.error("inbound-email: not fully configured (RESEND_RECEIVING_API_KEY / RESEND_WEBHOOK_SECRET / Supabase env vars).");
     res.status(500).json({ error: "Not configured yet." });
     return;
   }
@@ -105,7 +112,11 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { email_id, from, subject } = event.data;
+  const { email_id, from, subject, to, received_for } = event.data;
+  // received_for is Resend's own record of which address actually matched delivery - preferred
+  // over `to` (a header the sender wrote, in principle less trustworthy) when both are present;
+  // seen identical in practice, but this is the more correct field to route on.
+  const toAddress = (received_for && received_for[0]) || (to && to[0]);
 
   // The webhook payload is metadata only (from/to/subject) - the actual body needs a separate
   // API call. See https://resend.com/docs/api-reference/emails/retrieve-received-email
@@ -133,10 +144,13 @@ export default async function handler(req, res) {
     return;
   }
 
-  const ownerUserId = await findOwnerUserId();
-  if (!ownerUserId) {
-    console.error(`inbound-email: INBOUND_EMAIL_OWNER (${INBOUND_EMAIL_OWNER}) doesn't match any Supabase user.`);
-    res.status(500).json({ error: "Inbound email owner not configured correctly." });
+  const customer = await findCustomerByAddress(toAddress);
+  if (!customer) {
+    // Not an error - most likely an email sent to an address no customer has been assigned yet
+    // (e.g. a typo, or the admin hasn't added this customer in admin.html yet). 200 so Resend
+    // doesn't retry a delivery that will never resolve to anyone.
+    console.warn(`inbound-email: no customer configured for "${toAddress}" (email ${email_id} from ${from}) - dropping.`);
+    res.status(200).json({ ok: false, skipped: "unknown-recipient" });
     return;
   }
 
@@ -151,7 +165,7 @@ export default async function handler(req, res) {
       from_email: from,
       subject: subject || null,
       body,
-      created_by: ownerUserId,
+      created_by: customer.owner_user_id,
     })
     .select("id")
     .single();

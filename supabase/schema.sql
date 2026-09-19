@@ -90,3 +90,28 @@ create index if not exists tenant_messages_pending_idx on tenant_messages (creat
 
 -- Same defense-in-depth reasoning as `tickets` above - only ever touched via service_role.
 alter table tenant_messages enable row level security;
+
+-- Maps an inbound email's local-part (the part before @) to the Leaseline customer (property
+-- manager) it belongs to - see api/inbound-email.js. Multiple customers can share the same
+-- receiving domain (Resend's free <id>.resend.app address, or a future verified custom domain)
+-- since Resend accepts any local-part sent to that domain - the local-part is what's actually
+-- unique per customer, not the domain, so this table (not a DNS/Resend setting) is what does the
+-- routing. Managed via admin.html's "Customers" panel (api/admin-customers.js).
+create table if not exists customers (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+
+  name text not null,
+  local_part text not null unique, -- lowercase, no "@domain" - e.g. 'sunsetapartments'
+
+  -- The Supabase user (dashboard.html login) who manages this customer's tickets. One owner per
+  -- customer for now - a single user managing multiple customers/properties is real future work,
+  -- not modeled yet, same "not before it's needed" reasoning as everywhere else in this project.
+  owner_user_id uuid not null references auth.users(id)
+);
+
+create index if not exists customers_local_part_idx on customers (local_part);
+
+-- Same defense-in-depth reasoning as tickets/tenant_messages above - only ever touched via
+-- service_role from server-side API routes.
+alter table customers enable row level security;

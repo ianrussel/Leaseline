@@ -249,17 +249,26 @@ and saves it as a pending tenant message.
    only send emails" against a Sending-access key, and widening the existing sending-only key to
    Full access would give the send-only code paths (`analyze-tickets.js`, `send-reply.js`) more
    privilege than they need.
-4. Set `INBOUND_EMAIL_OWNER` to the email of the Supabase user tickets should be created under.
+4. `admin.html`'s **Customers** panel → add each customer: a display name, a unique **local-part**
+   (the part of the email address before `@` - e.g. `sunsetapartments`), and the email of the
+   existing Supabase user who manages that customer's tickets. A tenant emailing
+   `sunsetapartments@<your receiving address>` then lands in that owner's inbox specifically - see
+   "Multi-customer routing" below for how this works.
 5. `npm install` (pulls in the new `svix` dependency, used for webhook signature verification).
 
 Remember to set `RESEND_RECEIVING_API_KEY` in Vercel's dashboard too (Project Settings →
 Environment Variables) and redeploy - like every other env var here, `.env` only covers local dev.
 
-**No per-customer routing yet** - every email received, regardless of which address it was sent
-to, becomes a ticket under the single account in `INBOUND_EMAIL_OWNER`. Real multi-customer
-routing (matching the `to` address to a specific customer's account) is Phase 3/4 work, once
-there's an actual multi-account system - premature before that, same reasoning as not building a
-signup form yet.
+**Multi-customer routing**: multiple customers can share the same receiving address/domain -
+Resend's free `<id>.resend.app` address (and a future verified custom domain, same way) accepts
+*any* local-part sent to it, so the local-part itself is what's unique per customer, not the
+domain. `api/inbound-email.js` reads the webhook's `to`/`received_for` field, looks up which
+customer that local-part belongs to (the `customers` table, `supabase/schema.sql`), and creates
+the pending inbox row under that customer's owner - not a single hardcoded account. An email sent
+to a local-part with no matching customer is dropped (logged, not an error - most likely a typo or
+a customer that hasn't been added yet). There's still no public signup flow - adding a customer
+means their manager already has a Supabase user (Authentication → Users → Add user), same as
+every other account in this project.
 
 **Signature verification is mandatory, not optional** - the endpoint rejects any request that
 doesn't verify against `RESEND_WEBHOOK_SECRET` using the `svix` library, so a random POST to the
