@@ -40,6 +40,8 @@ import {
   countUsage,
   MONTHLY_TRIAGE_LIMIT,
   isActive,
+  computeCancelUpdate,
+  computeReactivateUpdate,
 } from "./_lib/billing.js";
 
 const RESEND_RECEIVING_DOMAIN = process.env.RESEND_RECEIVING_DOMAIN || null;
@@ -253,22 +255,13 @@ export default async function handler(req, res) {
 
     let update;
     if (action === "cancel") {
-      if (customer.access_ends_at) {
+      update = computeCancelUpdate(customer);
+      if (!update) {
         res.status(400).json({ error: "This customer is already canceled." });
         return;
       }
-      // access_ends_at is the END of the period already paid for, not now - cancel-at-period-end,
-      // no refund, no immediate cutoff (see schema.sql's comment). Computed once, here, and
-      // stored - never recomputed from current_period_start again, so it can't silently drift.
-      update = { canceled_at: new Date().toISOString(), access_ends_at: periodEnd(customer).toISOString() };
     } else {
-      // Reactivating after access had already lapsed starts a fresh period from right now - the
-      // old one is long over, there's nothing meaningful left to resume. Reactivating BEFORE
-      // access_ends_at (undoing an accidental cancel) leaves current_period_start untouched -
-      // they're still mid-period, no reason to disrupt it.
-      const hadLapsed = customer.access_ends_at && new Date(customer.access_ends_at) <= new Date();
-      update = { canceled_at: null, access_ends_at: null };
-      if (hadLapsed) update.current_period_start = new Date().toISOString();
+      update = computeReactivateUpdate(customer);
     }
 
     const { error: updateError } = await supabaseAdmin.from("customers").update(update).eq("id", id);

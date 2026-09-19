@@ -60,6 +60,30 @@ export function isActive(customer) {
 }
 
 /**
+ * Shared by api/admin-customers.js's admin-facing PATCH and api/tickets.js's customer-facing
+ * self-service PATCH, so the two paths can never quietly diverge on what "cancel" actually does.
+ * Returns null if already canceled - the caller should treat that as a no-op/error, not apply it.
+ */
+export function computeCancelUpdate(customer) {
+  if (customer.access_ends_at) return null;
+  return { canceled_at: new Date().toISOString(), access_ends_at: periodEnd(customer).toISOString() };
+}
+
+/**
+ * Reactivating ("renew" in customer-facing copy) after access had already lapsed starts a fresh
+ * period from right now - the old one is long over, nothing left to resume. Reactivating BEFORE
+ * access_ends_at (undoing a still-pending cancellation) leaves current_period_start untouched -
+ * they're still mid-period, no reason to disrupt it. Same function backs both admin's
+ * "Reactivate" and the customer's own "Renew subscription".
+ */
+export function computeReactivateUpdate(customer) {
+  const hadLapsed = customer.access_ends_at && new Date(customer.access_ends_at) <= new Date();
+  const update = { canceled_at: null, access_ends_at: null };
+  if (hadLapsed) update.current_period_start = new Date().toISOString();
+  return update;
+}
+
+/**
  * Counts triage tickets this customer's owner has created since current_period_start - usage is
  * always computed live from `tickets`, never a separately incremented counter, so it's correct
  * even if recomputed retroactively (e.g. after current_period_start rolls forward).

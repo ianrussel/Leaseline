@@ -556,6 +556,52 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
         entry above were confirmed STILL not run (`column customers.is_beta does not exist`,
         checked again), now joined by `canceled_at`/`access_ends_at`. `api/admin-customers.js`'s
         GET remains 500ing in production until all six `alter table` statements run.
+- [x] **admin.html redirects a non-admin instead of showing a dead-end screen, 2026-09-19.** A
+      signed-in-but-not-admin account used to see a static "this account isn't set up as an admin"
+      card with just a sign-out button - a dead end, since their actual tool (`dashboard.html`) was
+      one click away and this made them take an extra sign-out/sign-in round trip to get there.
+      Changed `showForSession`'s non-admin branch to `window.location.href = 'dashboard.html'`
+      instead - no loop risk, since `dashboard.html` never redirects a non-admin away (the reverse
+      case is normal - most Leaseline users are customers, not admins). The real access control is
+      still server-side (`requireAdmin()` in `api/_lib/auth.js`) either way; this only changes
+      where a blocked browser ends up, not what's actually protected. Removed the now-fully-dead
+      `#notAuthorizedScreen` markup/CSS comment/JS consts/listener entirely rather than leaving it
+      unused - nothing else referenced it once the redirect replaced its only call site.
+- [x] **Customer self-service cancel/renew + account dropdown, 2026-09-19.** Two things: a real
+      product question (does a customer get charged if they use zero triages in a month?) and a
+      UI request (account menu with sign-out, cancel, renew).
+      - **Answered the billing question directly**: yes, by design - this is a flat-rate
+        subscription ($29/mo for up to 100 triages), not pay-per-use/metered billing.
+        `MONTHLY_TRIAGE_LIMIT` only exists to flag going OVER the included amount, never to reduce
+        the price for using less - same as a phone plan or gym membership. Confirmed this is
+        already how the existing architecture works, not a gap: `billing-reminders.js` auto-renews
+        an active subscription every month regardless of usage, matching how Stripe's own
+        subscriptions auto-renew by default.
+      - That auto-renew fact reframes what a customer-facing "Renew" button should even mean -
+        never needed for an active subscription (it already renews itself), only for a CANCELED
+        one (undoing that decision, or resuming after access lapsed). `dashboard.html` only shows
+        one of Cancel/Renew at a time based on `canceled_at`, never both.
+      - New `computeCancelUpdate`/`computeReactivateUpdate` in `api/_lib/billing.js` - the actual
+        cancel/reactivate logic, extracted out of `api/admin-customers.js`'s PATCH (added earlier
+        today) so a second, customer-facing implementation couldn't quietly diverge from the
+        admin one on what cancelling or renewing actually does.
+      - New PATCH `{action: 'cancel'|'renew'}` on `api/tickets.js` (no new file - still at the 12-
+        function Hobby cap) - scoped to the CALLER'S OWN customer row via `owner_user_id`, never a
+        client-supplied id. Deliberately uses `requireUser`, not `requireCustomer` - the whole
+        point is reachability for a customer whose access has ALREADY lapsed, and
+        `requireCustomer` would reject exactly that account before it could ever reach "renew".
+      - `requireCustomer()`'s 403 responses gained a `code` field (`not_a_customer` vs.
+        `subscription_ended`) so the client can tell "there's no customer row at all" (nothing to
+        self-serve, needs an admin) apart from "there's a customer row, it just lapsed" (self-serve
+        renewal is possible) - `dashboard.html`'s blocked-screen now conditionally shows a "Renew
+        subscription" button only for the second case, so a fully-locked-out customer isn't
+        stranded needing to email the admin for something they could fix themselves.
+      - `dashboard.html`'s topbar avatar+email became a dropdown (hand-rolled show/hide via a
+        `.show` class toggle, not Bootstrap's JS dropdown component - no Bootstrap JS bundle is
+        loaded on this deliberately-plain-vanilla page, only its CSS) containing Cancel
+        subscription / Renew subscription (whichever applies) and Sign out. The "Your plan" usage
+        card also now reads "Canceled · access ends/ended `<date>`" instead of a normal renewal
+        date when applicable.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:
@@ -582,23 +628,44 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
       - New env vars: `CRON_SECRET` (verifies cron requests are really from Vercel),
         `ADMIN_EMAIL`, `RESEND_API_KEY` (new account - free tier, needed because Formspree's
         form→email model doesn't fit "send FROM our code TO an address in `.env`").
-- [ ] **Buy a real domain and verify it with Resend for sending** - blocking issue found
-      2026-09-19: `api/send-reply.js`'s "Send via email" silently fails for any real tenant
-      address, because `onboarding@resend.dev` (the current `from`) is a Resend sandbox address
-      that can only send to the account's own verified email - confirmed via Resend's send log
-      showing zero record of the attempt (rejected before delivery, not a bounce). Same
+- [ ] **Buy a real domain and configure it in Resend - both sending AND receiving** - blocking
+      issue found 2026-09-19: `api/send-reply.js`'s "Send via email" silently fails for any real
+      tenant address, because `onboarding@resend.dev` (the current `from`) is a Resend sandbox
+      address that can only send to the account's own verified email - confirmed via Resend's send
+      log showing zero record of the attempt (rejected before delivery, not a bounce). Same
       restriction affects `api/analyze-tickets.js`, `api/billing-reminders.js`, and
       `api/inbound-email.js`'s owner-notification email - all four use the same sandbox `from`
-      address. Fix: Resend dashboard → Domains → Add Domain → add the DNS records (SPF/DKIM) at
-      the registrar → once verified, update the `from:` in all four files to use it. Whatever
-      domain gets bought for the marketing site should be the one used here too (or a subdomain of
-      it, e.g. `mail.<domain>`) - a mismatched sending domain looks less trustworthy to recipients
-      and weakens deliverability versus one that matches the actual product's web presence.
+      address. Two separate configurations needed once a domain is bought, not just one:
+      - **Sending**: Resend dashboard → Domains → Add Domain → add the DNS records (SPF/DKIM) at
+        the registrar → once verified, update the `from:` in all four files above to use it.
+      - **Receiving**: Resend dashboard → Emails → Receiving → point the domain's MX record at
+        Resend → update `RESEND_RECEIVING_DOMAIN` (`.env`/Vercel) so `admin.html`'s Customers
+        panel shows real addresses like `sunsetapartments@<domain>` instead of the current shared
+        `uuziluuamb.resend.app`. Not strictly required (the shared address keeps working
+        indefinitely, routing is local-part-based regardless of domain - see README.md's
+        "Multi-customer routing" section) but more professional-looking once there's a real
+        domain, and needed anyway if a customer wants their own custom domain per README's
+        "customer can use their own domain" section.
+      Whatever domain gets bought for the marketing site should be the one used for both of the
+      above (or a subdomain of it, e.g. `mail.<domain>`) - a mismatched domain looks less
+      trustworthy to recipients and weakens deliverability versus one that matches the actual
+      product's web presence.
 - [ ] Stripe account (billing)
 - [ ] Wire dashboard → inference endpoint → auth → billing - **auth part done above**; billing
       gating still not started (no Stripe account, no subscription check anywhere yet)
 - [ ] Deploy dashboard on `app.<domain>` (same root domain as the marketing site, subdomain split
       — not a second domain; see chat history for the reasoning)
+- [ ] **Write a customer sign-up agreement (liability/responsibility terms), 2026-09-19.** Not
+      drafted yet - needs to state plainly that the AI model is trained to answer as reliably as
+      possible, but the customer (property manager) bears sole responsibility for reviewing each
+      triage result before it goes out - whether they accept it as-is or edit it - before it's
+      sent as a reply email to their own tenant. Matters because `dashboard.html`'s actual design
+      already assumes and depends on this: nothing auto-sends without the customer clicking "Send"
+      themselves (see the "Inbound email redesigned" and safety-net entries above - human review
+      is a deliberate checkpoint, not an incidental gap), so the agreement should describe the
+      real, already-built workflow rather than invent a different one. Needs actual legal review
+      before use, not just this AI-drafted note - this is a placeholder to make sure it doesn't
+      get forgotten before real customers sign up, not the agreement itself.
 
 ## Phase 4 — Launch (not started)
 

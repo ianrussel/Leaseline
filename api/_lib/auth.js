@@ -110,11 +110,18 @@ export async function requireCustomer(req, res) {
     return null;
   }
   if (!data) {
-    res.status(403).json({ error: "Your account isn't set up as a customer yet - contact your admin to get set up." });
+    res.status(403).json({
+      error: "Your account isn't set up as a customer yet - contact your admin to get set up.",
+      code: "not_a_customer",
+    });
     return null;
   }
   if (!isActive(data)) {
-    res.status(403).json({ error: "Your subscription has ended - contact your admin to reactivate it." });
+    // code lets dashboard.html's notCustomerScreen tell this apart from "never set up" and offer
+    // a self-service "Renew subscription" button instead of just "contact your admin" - see
+    // api/tickets.js's PATCH handler, which is reachable precisely because IT doesn't use
+    // requireCustomer (it would reject the very account trying to renew).
+    res.status(403).json({ error: "Your subscription has ended - renew it to continue.", code: "subscription_ended" });
     return null;
   }
 

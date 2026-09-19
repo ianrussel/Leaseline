@@ -16,10 +16,9 @@
 <style>
   /* Bootstrap's display utilities (d-flex, d-block, etc.) set `display` with !important, which
      otherwise beats the browser's default `[hidden] { display: none }` rule on any element that
-     has both - #loginScreen and #notAuthorizedScreen both use d-flex for centering, so without
-     this the login/not-authorized screens never actually went away and the real page rendered
-     messily underneath instead of replacing them. Being later in the cascade (after
-     bootstrap.min.css/app.min.css) is what lets this win at equal specificity. */
+     has both - #loginScreen uses d-flex for centering, so without this it never actually went
+     away and the real page rendered messily underneath instead of replacing it. Being later in
+     the cascade (after bootstrap.min.css/app.min.css) is what lets this win at equal specificity. */
   [hidden] { display: none !important; }
 
   .badge-emergency { background: #b23a2a; color: #f8ede9; }
@@ -60,16 +59,6 @@
         <button type="submit" class="btn btn-primary w-100" id="loginBtn">Sign in</button>
       </form>
       <div class="alert alert-danger mt-3 py-2 px-3 small mb-0" id="loginError" hidden></div>
-    </div>
-  </div>
-</div>
-
-<div id="notAuthorizedScreen" class="d-flex align-items-center justify-content-center" hidden>
-  <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
-    <div class="card-body p-4">
-      <h4 class="mb-1 brand-wordmark fs-3">LEASELINE</h4>
-      <p class="text-muted mb-3">You're signed in, but this account isn't set up as an admin.</p>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="notAuthLogoutBtn">Sign out</button>
     </div>
   </div>
 </div>
@@ -241,8 +230,6 @@
   const loginForm = document.getElementById('loginForm');
   const loginBtn = document.getElementById('loginBtn');
   const loginError = document.getElementById('loginError');
-  const notAuthorizedScreen = document.getElementById('notAuthorizedScreen');
-  const notAuthLogoutBtn = document.getElementById('notAuthLogoutBtn');
   const wrapper = document.getElementById('wrapper');
   const logoutBtn = document.getElementById('logoutBtn');
   const sidebarToggle = document.getElementById('sidebarToggle');
@@ -257,8 +244,6 @@
   const customerIsBeta = document.getElementById('customerIsBeta');
   const addCustomerBtn = document.getElementById('addCustomerBtn');
   const customerError = document.getElementById('customerError');
-
-  notAuthLogoutBtn.addEventListener('click', () => supabase.auth.signOut());
 
   sidebarToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-enable'));
 
@@ -469,20 +454,18 @@
   function showForSession(session) {
     if (session && session.user?.app_metadata?.role === 'admin') {
       loginScreen.hidden = true;
-      notAuthorizedScreen.hidden = true;
       wrapper.hidden = false;
       userEmail.textContent = session.user.email;
       loadCandidates();
       loadCustomers(); // also populates the owner dropdown
     } else if (session) {
       // Signed in, but not an admin - the real enforcement is server-side (requireAdmin() in
-      // api/_lib/auth.js); this is just a clean message instead of a panel that silently 403s.
-      loginScreen.hidden = true;
-      notAuthorizedScreen.hidden = false;
-      wrapper.hidden = true;
+      // api/_lib/auth.js), so this redirect is just a courtesy, not the security boundary.
+      // Sending them to dashboard.html (their actual tool) rather than leaving them stuck on a
+      // page that isn't theirs - no loop risk, dashboard.html never redirects a non-admin away.
+      window.location.href = 'dashboard.html';
     } else {
       loginScreen.hidden = false;
-      notAuthorizedScreen.hidden = true;
       wrapper.hidden = true;
     }
   }

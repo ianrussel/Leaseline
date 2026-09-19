@@ -83,6 +83,7 @@
         You're signed in, but your account isn't set up as a customer yet - contact your admin to
         get set up before you can triage anything.
       </p>
+      <button type="button" class="btn btn-primary btn-sm me-2" id="notCustomerRenewBtn" hidden>Renew subscription</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" id="notCustomerLogoutBtn">Sign out</button>
     </div>
   </div>
@@ -132,14 +133,27 @@
           <h4 class="page-title d-none d-md-block mb-0 ms-1">Triage</h4>
         </div>
         <ul class="topbar-menu d-flex align-items-center mb-0">
-          <li class="d-flex align-items-center gap-2 me-2">
-            <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-secondary text-white flex-shrink-0"
-                  style="width: 28px; height: 28px;">
-              <i data-feather="user" style="width: 16px; height: 16px;"></i>
-            </span>
-            <span class="text-mono small text-muted d-none d-sm-inline-block text-truncate" style="max-width: 160px;" id="userEmail"></span>
+          <li class="position-relative">
+            <a href="javascript:void(0);" class="d-flex align-items-center gap-2 text-decoration-none text-body" id="accountMenuToggle">
+              <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-secondary text-white flex-shrink-0"
+                    style="width: 28px; height: 28px;">
+                <i data-feather="user" style="width: 16px; height: 16px;"></i>
+              </span>
+              <span class="text-mono small text-muted d-none d-sm-inline-block text-truncate" style="max-width: 160px;" id="userEmail"></span>
+              <i data-feather="chevron-down" style="width: 14px; height: 14px;"></i>
+            </a>
+            <!-- Hand-rolled show/hide (accountMenuToggle's click listener below), not Bootstrap's
+                 JS dropdown component - no Bootstrap JS bundle is loaded on this page (deliberately
+                 plain vanilla, see the admin-theme comment in <head>), only its CSS. .dropdown-menu
+                 / .show are still plain Bootstrap CSS classes, just toggled by hand instead of by
+                 Bootstrap's own JS. -->
+            <ul class="dropdown-menu dropdown-menu-end" id="accountMenu">
+              <li><button type="button" class="dropdown-item" id="cancelSubBtn" hidden>Cancel subscription</button></li>
+              <li><button type="button" class="dropdown-item" id="renewSubBtn" hidden>Renew subscription</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><button type="button" class="dropdown-item" id="logoutBtn">Sign out</button></li>
+            </ul>
           </li>
-          <li><button type="button" class="btn btn-sm btn-outline-secondary" id="logoutBtn">Sign out</button></li>
         </ul>
       </div>
     </div>
@@ -324,10 +338,14 @@
 
   // null for an admin account (no `customers` row to compute it from - see api/tickets.js) - the
   // card just stays hidden in that case, same as it would for any customer whose usage lookup
-  // happened to fail server-side.
+  // happened to fail server-side. Also drives the account dropdown's Cancel/Renew buttons - only
+  // ever one or the other, never both, and neither for an admin (usage null means no subscription
+  // to manage at all).
   function renderUsage(usage) {
     if (!usage) {
       usageCard.hidden = true;
+      cancelSubBtn.hidden = true;
+      renewSubBtn.hidden = true;
       return;
     }
     usageCard.hidden = false;
@@ -335,8 +353,20 @@
     const pct = Math.min(100, Math.round((usage.used / usage.limit) * 100));
     usageBar.style.width = `${pct}%`;
     usageBar.className = 'progress-bar' + (usage.used > usage.limit ? ' bg-warning' : '');
-    const resetDate = new Date(usage.period_end).toLocaleDateString();
-    usagePeriod.textContent = `$${usage.price}/mo · resets ${resetDate}`;
+
+    const canceled = !!usage.canceled_at;
+    cancelSubBtn.hidden = canceled;
+    renewSubBtn.hidden = !canceled;
+
+    if (canceled) {
+      // Cancel-at-period-end, no refund (see api/_lib/billing.js) - still fully usable right up
+      // until access_ends_at, so this reads as informational, not a "you're locked out" warning.
+      const endDate = new Date(usage.access_ends_at).toLocaleDateString();
+      usagePeriod.textContent = usage.is_active ? `Canceled · access ends ${endDate}` : `Canceled · access ended ${endDate}`;
+    } else {
+      const resetDate = new Date(usage.period_end).toLocaleDateString();
+      usagePeriod.textContent = `$${usage.price}/mo · renews ${resetDate}`;
+    }
     usageOverLimitNote.hidden = usage.used <= usage.limit;
   }
 
@@ -414,11 +444,16 @@
   const loginError = document.getElementById('loginError');
   const notCustomerScreen = document.getElementById('notCustomerScreen');
   const notCustomerMessage = document.getElementById('notCustomerMessage');
+  const notCustomerRenewBtn = document.getElementById('notCustomerRenewBtn');
   const notCustomerLogoutBtn = document.getElementById('notCustomerLogoutBtn');
   const wrapper = document.getElementById('wrapper');
   const logoutBtn = document.getElementById('logoutBtn');
   const sidebarToggle = document.getElementById('sidebarToggle');
   const userEmail = document.getElementById('userEmail');
+  const accountMenuToggle = document.getElementById('accountMenuToggle');
+  const accountMenu = document.getElementById('accountMenu');
+  const cancelSubBtn = document.getElementById('cancelSubBtn');
+  const renewSubBtn = document.getElementById('renewSubBtn');
   const trainingReviewNavItem = document.getElementById('trainingReviewNavItem');
   const inboxCard = document.getElementById('inboxCard');
   const inboxBody = document.getElementById('inboxBody');
@@ -426,6 +461,37 @@
 
   sidebarToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-enable'));
   notCustomerLogoutBtn.addEventListener('click', () => supabase.auth.signOut());
+
+  // Hand-rolled dropdown (see the HTML comment above #accountMenu) - stopPropagation on the
+  // toggle's own click keeps the immediate document-level listener below from closing it in the
+  // same tick it just opened.
+  accountMenuToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    accountMenu.classList.toggle('show');
+  });
+  document.addEventListener('click', () => accountMenu.classList.remove('show'));
+
+  async function patchSubscription(action) {
+    const res = await authedFetch('/api/tickets', { method: 'PATCH', body: JSON.stringify({ action }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errorBox.textContent = data.error || `Request failed (${res.status})`;
+      errorBox.hidden = false;
+      return false;
+    }
+    return true;
+  }
+
+  cancelSubBtn.addEventListener('click', async () => {
+    if (!confirm('Cancel your subscription? You keep full access until the end of your current billing period - no refund, nothing deleted.')) return;
+    if (await patchSubscription('cancel')) loadTickets(); // refreshes the usage card's cancel/renew state
+  });
+  renewSubBtn.addEventListener('click', async () => {
+    if (await patchSubscription('renew')) loadTickets();
+  });
+  notCustomerRenewBtn.addEventListener('click', async () => {
+    if (await patchSubscription('renew')) showForSession((await supabase.auth.getSession()).data.session);
+  });
 
   // Purely a "show a clean screen instead of a raw 403 on the first triage attempt" nicety - the
   // real enforcement is requireCustomer() (api/_lib/auth.js), which every endpoint below already
@@ -437,16 +503,20 @@
   // proceeds to the real dashboard rather than blocking on it, since this is cosmetic and the
   // actual security boundary doesn't depend on this check succeeding.
   //
-  // Returns the server's actual error text on a 403 - requireCustomer() distinguishes "never set
-  // up as a customer" from "subscription has ended" (a canceled customer past access_ends_at),
-  // and this surfaces whichever one actually applies instead of always showing the generic
-  // never-set-up message.
+  // Returns the server's actual error text AND code on a 403 - requireCustomer() distinguishes
+  // "never set up as a customer" (code: not_a_customer) from "subscription has ended" (code:
+  // subscription_ended, a canceled customer past access_ends_at) - the code is what lets this
+  // screen decide whether to offer a self-service "Renew subscription" button (there's an actual
+  // customer row to renew) or not (there's nothing to renew - only an admin can help).
   async function checkIsCustomer() {
     try {
       const res = await authedFetch('/api/tickets');
       if (res.status !== 403) return null;
       const data = await res.json().catch(() => ({}));
-      return data.error || 'Your account isn\'t set up as a customer yet - contact your admin to get set up before you can triage anything.';
+      return {
+        message: data.error || 'Your account isn\'t set up as a customer yet - contact your admin to get set up before you can triage anything.',
+        code: data.code || null,
+      };
     } catch (err) {
       return null;
     }
@@ -454,9 +524,10 @@
 
   async function showForSession(session) {
     if (session) {
-      const blockedReason = await checkIsCustomer();
-      if (blockedReason) {
-        notCustomerMessage.textContent = blockedReason;
+      const blocked = await checkIsCustomer();
+      if (blocked) {
+        notCustomerMessage.textContent = blocked.message;
+        notCustomerRenewBtn.hidden = blocked.code !== 'subscription_ended';
         loginScreen.hidden = true;
         notCustomerScreen.hidden = false;
         wrapper.hidden = true;
