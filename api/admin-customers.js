@@ -3,7 +3,11 @@
 // routing work (see api/inbound-email.js's findCustomerByAddress). Backs admin.html's
 // "Customers" panel - same gating as api/admin-tickets.js, no public signup involved.
 //
-// GET             -> list all customers, newest first
+// GET             -> { customers: [...], receiving_domain }, newest customer first -
+//                    receiving_domain (RESEND_RECEIVING_DOMAIN) is a display-only convenience so
+//                    admin.html can show each customer's actual full inbound address
+//                    (local_part@receiving_domain) instead of a bare local-part the admin has to
+//                    mentally combine with a domain they remember separately.
 // POST   {name, local_part, owner_email} -> create one (owner_email must be an existing Supabase
 //                    user - added manually via the Supabase dashboard, same as every other user
 //                    in this project; there's no self-serve signup yet)
@@ -11,6 +15,8 @@
 //                    that owner - only stops routing NEW inbound email to this local-part)
 
 import { supabaseAdmin, requireAdmin } from "./_lib/auth.js";
+
+const RESEND_RECEIVING_DOMAIN = process.env.RESEND_RECEIVING_DOMAIN || null;
 
 // listUsers() paginates (50/page) - fine at this project's scale (a handful of customers for a
 // while yet). Used both to resolve an owner_email into a user id on create, and to display owner
@@ -47,7 +53,10 @@ export default async function handler(req, res) {
     }
     const emailById = Object.fromEntries(users.map((u) => [u.id, u.email]));
 
-    res.status(200).json(data.map((c) => ({ ...c, owner_email: emailById[c.owner_user_id] || null })));
+    res.status(200).json({
+      customers: data.map((c) => ({ ...c, owner_email: emailById[c.owner_user_id] || null })),
+      receiving_domain: RESEND_RECEIVING_DOMAIN,
+    });
     return;
   }
 
@@ -55,11 +64,6 @@ export default async function handler(req, res) {
     const { name, local_part, owner_email } = req.body || {};
     if (!name || typeof name !== "string" || !name.trim()) {
       res.status(400).json({ error: "Missing 'name'." });
-      return;
-    }
-    const localPart = typeof local_part === "string" ? local_part.trim().toLowerCase() : "";
-    if (!localPart || /[^a-z0-9._-]/.test(localPart)) {
-      res.status(400).json({ error: "Local-part must be letters/numbers/._- only (the part before @)." });
       return;
     }
     if (!owner_email || typeof owner_email !== "string" || !owner_email.trim()) {
@@ -83,6 +87,26 @@ export default async function handler(req, res) {
       return;
     }
 
+    // The account email (Supabase login, invites, business correspondence with us) and the
+    // tenant-facing support address are different concerns - a customer shouldn't be forced to
+    // invent a second address just to receive tenant email. Explicit local_part wins when given
+    // (lets a customer use something memorable like "sunsetapartments" or "support"); left blank,
+    // default to the local-part of their OWN account email, stripped of characters our routing
+    // doesn't accept - not the literal same address (Resend can only receive mail for domains it's
+    // configured to receive for, not an arbitrary company's real domain), but the same "no extra
+    // setup needed" effect the account email already provides.
+    let localPart = typeof local_part === "string" ? local_part.trim().toLowerCase() : "";
+    if (!localPart) {
+      localPart = owner.email.split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "");
+      if (!localPart) {
+        res.status(400).json({ error: "Couldn't derive a support address from that account email - provide a local-part manually." });
+        return;
+      }
+    } else if (/[^a-z0-9._-]/.test(localPart)) {
+      res.status(400).json({ error: "Local-part must be letters/numbers/._- only (the part before @)." });
+      return;
+    }
+
     const { data: created, error: insertError } = await supabaseAdmin
       .from("customers")
       .insert({ name: name.trim(), local_part: localPart, owner_user_id: owner.id })
@@ -90,9 +114,15 @@ export default async function handler(req, res) {
       .single();
 
     if (insertError) {
-      // Postgres unique_violation - the one validation failure worth a specific message, since
-      // it's the one an admin is likely to actually hit (typo'd the same local-part twice).
-      const message = insertError.code === "23505" ? `"${localPart}" is already used by another customer.` : "Couldn't save that customer.";
+      // Postgres unique_violation - worth a specific message since it's the failure an admin is
+      // actually likely to hit: either a typo'd duplicate local-part, or two customers whose
+      // account emails happen to share the same local-part on different domains (e.g.
+      // owner@companyA.com and owner@companyB.com both default to "owner") - either way the fix is
+      // the same, provide an explicit local-part instead of relying on the default.
+      const message =
+        insertError.code === "23505"
+          ? `"${localPart}" is already used by another customer - provide a different local-part for this one.`
+          : "Couldn't save that customer.";
       console.error("admin-customers: insert failed:", insertError.message);
       res.status(400).json({ error: message });
       return;

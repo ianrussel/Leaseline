@@ -70,6 +70,24 @@
   </div>
 </div>
 
+<!-- Shown when signed in but not yet linked to a customer (admin.html's "Customers" panel,
+     api/admin-customers.js) - being a valid Supabase user is necessary but not sufficient to
+     triage anything (see api/_lib/auth.js's requireCustomer, which every endpoint below actually
+     enforces this against). Same pattern as admin.html's own "not authorized" screen for a
+     signed-in non-admin. -->
+<div id="notCustomerScreen" class="d-flex align-items-center justify-content-center" hidden>
+  <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+    <div class="card-body p-4">
+      <h4 class="mb-1 brand-wordmark fs-3">LEASELINE</h4>
+      <p class="text-muted mb-3">
+        You're signed in, but your account isn't set up as a customer yet - contact your admin to
+        get set up before you can triage anything.
+      </p>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="notCustomerLogoutBtn">Sign out</button>
+    </div>
+  </div>
+</div>
+
 <!-- Main app shell: #wrapper > .app-menu (sidebar) + .content-page (topbar + content). -->
 <div id="wrapper" hidden>
   <div class="app-menu">
@@ -309,6 +327,8 @@
   const loginForm = document.getElementById('loginForm');
   const loginBtn = document.getElementById('loginBtn');
   const loginError = document.getElementById('loginError');
+  const notCustomerScreen = document.getElementById('notCustomerScreen');
+  const notCustomerLogoutBtn = document.getElementById('notCustomerLogoutBtn');
   const wrapper = document.getElementById('wrapper');
   const logoutBtn = document.getElementById('logoutBtn');
   const sidebarToggle = document.getElementById('sidebarToggle');
@@ -319,10 +339,35 @@
   const inboxCount = document.getElementById('inboxCount');
 
   sidebarToggle.addEventListener('click', () => document.body.classList.toggle('sidebar-enable'));
+  notCustomerLogoutBtn.addEventListener('click', () => supabase.auth.signOut());
 
-  function showForSession(session) {
+  // Purely a "show a clean screen instead of a raw 403 on the first triage attempt" nicety - the
+  // real enforcement is requireCustomer() (api/_lib/auth.js), which every endpoint below already
+  // calls independently of this check. Fails closed (blocks) on a network error, same reasoning
+  // as failing closed anywhere else auth-adjacent - showing the real dashboard by default if this
+  // check couldn't even run would be the wrong direction to fail in.
+  async function checkIsCustomer() {
+    try {
+      const res = await authedFetch('/api/customer-status');
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.is_customer;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  async function showForSession(session) {
     if (session) {
+      const isCustomer = await checkIsCustomer();
+      if (!isCustomer) {
+        loginScreen.hidden = true;
+        notCustomerScreen.hidden = false;
+        wrapper.hidden = true;
+        return;
+      }
       loginScreen.hidden = true;
+      notCustomerScreen.hidden = true;
       wrapper.hidden = false;
       userEmail.textContent = session.user.email;
       // Purely a "don't show a link that'll 403/get sent to a not-authorized screen" nicety -
@@ -334,6 +379,7 @@
       loadTenantMessages(true);
     } else {
       loginScreen.hidden = false;
+      notCustomerScreen.hidden = true;
       wrapper.hidden = true;
     }
   }

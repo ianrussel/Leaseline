@@ -11,7 +11,7 @@
 // for their own tickets.
 
 import { Resend } from "resend";
-import { supabaseAdmin, requireUser } from "./_lib/auth.js";
+import { supabaseAdmin, requireCustomer } from "./_lib/auth.js";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const user = await requireUser(req, res);
+  const user = await requireCustomer(req, res);
   if (!user) return;
 
   if (!resend) {

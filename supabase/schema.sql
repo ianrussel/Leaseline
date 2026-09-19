@@ -102,7 +102,12 @@ create table if not exists customers (
   created_at timestamptz not null default now(),
 
   name text not null,
-  local_part text not null unique, -- lowercase, no "@domain" - e.g. 'sunsetapartments'
+  -- lowercase, no "@domain" - e.g. 'sunsetapartments'. Always set, but not always admin-chosen:
+  -- api/admin-customers.js defaults this to the owner account email's own local-part when the
+  -- admin leaves it blank, so a customer isn't forced to invent a second address just to receive
+  -- tenant email - the account email itself (Supabase login, invites, business correspondence
+  -- with us) is a separate concern and is never used as the literal tenant-facing address.
+  local_part text not null unique,
 
   -- The Supabase user (dashboard.html login) who manages this customer's tickets. One owner per
   -- customer for now - a single user managing multiple customers/properties is real future work,

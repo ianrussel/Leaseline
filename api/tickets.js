@@ -5,7 +5,7 @@
 // deliberately different from api/admin-tickets.js, which shows candidates across ALL users -
 // that's the point of the admin review panel, not a bug.
 
-import { supabaseAdmin, requireUser } from "./_lib/auth.js";
+import { supabaseAdmin, requireCustomer } from "./_lib/auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const user = await requireUser(req, res);
+  const user = await requireCustomer(req, res);
   if (!user) return;
 
   const { data, error } = await supabaseAdmin

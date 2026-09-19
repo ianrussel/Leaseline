@@ -8,14 +8,16 @@
 // `tickets` table (see supabase/schema.sql) - the dashboard's history view and the edit-then-
 // send/copy actions (api/ticket-action.js) both depend on this.
 //
-// Auth: verifies the caller's Supabase session token server-side before doing anything else -
-// dashboard.html showing a login screen isn't real protection on its own, since anyone who finds
-// this URL directly could otherwise call it (and rack up Inference Endpoint usage) with no login
-// at all. There's no signup flow - single admin user, added manually via the Supabase dashboard
-// (Authentication -> Users -> Add user); build a real signup flow only once actual beta users
-// need accounts, not before.
+// Auth: requireCustomer() (api/_lib/auth.js) verifies the caller's Supabase session token AND
+// that they're a registered customer (a `customers` row, added via admin.html) - a signed-in
+// Supabase user who hasn't been linked to a customer yet is rejected here, not just shown a
+// friendlier screen client-side. dashboard.html showing a login screen isn't real protection on
+// its own, since anyone who finds this URL directly could otherwise call it (and rack up
+// Inference Endpoint usage) with no login at all. There's no signup flow - every account is added
+// manually via the Supabase dashboard (Authentication -> Users -> Add user), then linked to a
+// customer via admin.html; build a real signup flow only once actual beta users need it.
 
-import { supabaseAdmin, requireUser } from "./_lib/auth.js";
+import { supabaseAdmin, requireCustomer } from "./_lib/auth.js";
 import { runTriage } from "./_lib/triage-engine.js";
 
 export default async function handler(req, res) {
@@ -24,7 +26,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const user = await requireUser(req, res);
+  const user = await requireCustomer(req, res);
   if (!user) return;
 
   const { message, tenant_contact, tenant_message_id } = req.body || {};

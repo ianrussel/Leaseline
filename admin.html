@@ -142,17 +142,32 @@
             <h5 class="card-title mb-2">Customers</h5>
             <p class="text-muted small mb-3">
               Each row's local-part routes inbound email - a tenant emailing
-              <code>&lt;local-part&gt;@&lt;your Resend receiving domain&gt;</code> becomes a pending
-              message in that customer's owner's inbox (see api/inbound-email.js). Owner must
-              already be a Supabase user (Authentication → Users → Add user) - there's no signup
-              flow yet.
+              <code>&lt;local-part&gt;@<span id="receivingDomainNote">your Resend receiving domain</span></code>
+              becomes a pending message in that customer's owner's inbox (see
+              api/inbound-email.js). Leave local-part
+              blank to default to the owner email's own name (e.g. <code>owner@example.com</code> →
+              <code>owner</code>) - the owner's account email itself stays reserved for sign-in and
+              business correspondence with us, never used as the literal tenant-facing address.
+              Give it an explicit value (e.g. <code>sunsetapartments</code>) when a customer wants
+              something more memorable. Owner must already be a Supabase user (Authentication →
+              Users → Add user) - there's no signup
+              flow yet. Each local-part is exclusive to one customer - the database rejects a
+              duplicate outright, it's never silently shared or reassigned.
+            </p>
+            <p class="text-muted small mb-3">
+              <strong>If a customer wants tenants to keep emailing their existing business
+              address</strong> instead of learning a new one: that's only possible via a forwarding
+              rule set up on their end (e.g. Gmail → Settings → Forwarding and POP/IMAP → forward
+              to their local-part address here), not something this app can do for them - Resend
+              can only receive mail for domains it's configured to receive for, never an arbitrary
+              customer's real inbox provider.
             </p>
             <div class="table-responsive mb-3">
               <table class="table table-sm align-middle mb-0">
                 <thead>
                   <tr class="text-muted text-mono small">
                     <th>Name</th>
-                    <th>Local-part</th>
+                    <th>Inbound address</th>
                     <th>Owner</th>
                     <th></th>
                   </tr>
@@ -168,12 +183,14 @@
                 <input type="text" class="form-control form-control-sm" id="customerName" placeholder="Sunset Apartments" required>
               </div>
               <div class="col-12 col-sm-3">
-                <label class="form-label small" for="customerLocalPart">Local-part</label>
-                <input type="text" class="form-control form-control-sm" id="customerLocalPart" placeholder="sunsetapartments" required>
+                <label class="form-label small" for="customerLocalPart">Local-part <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-control form-control-sm" id="customerLocalPart" placeholder="defaults to owner email's name">
               </div>
               <div class="col-12 col-sm-3">
-                <label class="form-label small" for="customerOwnerEmail">Owner email</label>
-                <input type="email" class="form-control form-control-sm" id="customerOwnerEmail" placeholder="owner@example.com" required>
+                <label class="form-label small" for="customerOwnerEmail">Owner</label>
+                <select class="form-select form-select-sm" id="customerOwnerEmail" required>
+                  <option value="" disabled selected>Choose a user...</option>
+                </select>
               </div>
               <div class="col-12 col-sm-2">
                 <button type="submit" class="btn btn-primary btn-sm w-100" id="addCustomerBtn">Add</button>
@@ -212,6 +229,7 @@
   const candidatesContainer = document.getElementById('candidatesContainer');
   const userEmail = document.getElementById('userEmail');
   const customersBody = document.getElementById('customersBody');
+  const receivingDomainNote = document.getElementById('receivingDomainNote');
   const customerForm = document.getElementById('customerForm');
   const customerName = document.getElementById('customerName');
   const customerLocalPart = document.getElementById('customerLocalPart');
@@ -307,19 +325,42 @@
     }
   }
 
+  async function loadOwnerOptions() {
+    try {
+      const res = await authedFetch('/api/admin-users');
+      if (!res.ok) throw new Error('failed');
+      const users = await res.json();
+      const placeholder = customerOwnerEmail.querySelector('option[value=""]');
+      customerOwnerEmail.innerHTML = '';
+      if (placeholder) customerOwnerEmail.appendChild(placeholder);
+      users.forEach((u) => {
+        const opt = document.createElement('option');
+        opt.value = u.email;
+        opt.textContent = u.email;
+        customerOwnerEmail.appendChild(opt);
+      });
+    } catch (err) {
+      console.error('Failed to load users for owner dropdown:', err);
+    }
+  }
+
   async function loadCustomers() {
     try {
       const res = await authedFetch('/api/admin-customers');
       if (!res.ok) throw new Error('failed');
-      const customers = await res.json();
+      const { customers, receiving_domain } = await res.json();
+      if (receiving_domain) receivingDomainNote.textContent = receiving_domain;
       if (!customers.length) {
         customersBody.innerHTML = '<tr><td colspan="4" class="text-muted small">No customers yet.</td></tr>';
         return;
       }
+      // Shows the full, actually-usable address (not just the local-part) so this can be
+      // copy-pasted straight to a customer - falls back to bare local-part if
+      // RESEND_RECEIVING_DOMAIN isn't set, same info either way, just less convenient.
       customersBody.innerHTML = customers.map((c) => `
         <tr data-id="${c.id}">
           <td>${escapeHtml(c.name)}</td>
-          <td class="text-mono small">${escapeHtml(c.local_part)}</td>
+          <td class="text-mono small">${escapeHtml(receiving_domain ? `${c.local_part}@${receiving_domain}` : c.local_part)}</td>
           <td class="small text-muted">${escapeHtml(c.owner_email || '(unknown user)')}</td>
           <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-customer-btn">Remove</button></td>
         </tr>
@@ -331,6 +372,7 @@
           if (!confirm('Remove this customer? Inbound email to their address will stop being routed - existing tickets are unaffected.')) return;
           await authedFetch('/api/admin-customers', { method: 'DELETE', body: JSON.stringify({ id: row.dataset.id }) });
           loadCustomers();
+          loadOwnerOptions(); // that owner is eligible again now
         });
       });
     } catch (err) {
@@ -361,6 +403,7 @@
       }
       customerForm.reset();
       loadCustomers();
+      loadOwnerOptions(); // that owner is no longer eligible for a second customer
     } catch (err) {
       customerError.textContent = 'Network error - is the server running?';
       customerError.hidden = false;
@@ -378,6 +421,7 @@
       userEmail.textContent = session.user.email;
       loadCandidates();
       loadCustomers();
+      loadOwnerOptions();
     } else if (session) {
       // Signed in, but not an admin - the real enforcement is server-side (requireAdmin() in
       // api/_lib/auth.js); this is just a clean message instead of a panel that silently 403s.

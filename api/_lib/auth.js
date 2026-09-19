@@ -65,3 +65,39 @@ export async function requireAdmin(req, res) {
 
   return user;
 }
+
+/**
+ * Like requireUser, but additionally requires the caller to be a registered customer - a row in
+ * `customers` with owner_user_id = their id (see supabase/schema.sql, admin.html's "Customers"
+ * panel, api/admin-customers.js). Being a valid Supabase user is necessary but not sufficient to
+ * use the triage dashboard: an admin can add someone as a Supabase user (Authentication -> Users
+ * -> Add user) without yet linking them to a customer, and without this check that account could
+ * still triage messages and create tickets with no customer/local-part context behind them at
+ * all - an orphaned account in practice, since there'd be no inbound address routing to them and
+ * no way for an admin to find them in the Customers panel. Use for every dashboard.html-facing
+ * endpoint (api/triage.js, api/tickets.js, api/ticket-action.js, api/send-reply.js,
+ * api/tenant-messages.js) - deliberately NOT for admin.html's own endpoints, which use
+ * requireAdmin instead and have nothing to do with being a customer.
+ */
+export async function requireCustomer(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return null; // requireUser already sent the response
+
+  const { data, error } = await supabaseAdmin
+    .from("customers")
+    .select("id")
+    .eq("owner_user_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("requireCustomer: failed to check customer status:", error.message);
+    res.status(500).json({ error: "Something went wrong on our end." });
+    return null;
+  }
+  if (!data) {
+    res.status(403).json({ error: "Your account isn't set up as a customer yet - contact your admin to get set up." });
+    return null;
+  }
+
+  return user;
+}

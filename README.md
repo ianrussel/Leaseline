@@ -249,10 +249,13 @@ and saves it as a pending tenant message.
    only send emails" against a Sending-access key, and widening the existing sending-only key to
    Full access would give the send-only code paths (`analyze-tickets.js`, `send-reply.js`) more
    privilege than they need.
-4. `admin.html`'s **Customers** panel → add each customer: a display name, a unique **local-part**
-   (the part of the email address before `@` - e.g. `sunsetapartments`), and the email of the
-   existing Supabase user who manages that customer's tickets. A tenant emailing
-   `sunsetapartments@<your receiving address>` then lands in that owner's inbox specifically - see
+4. `admin.html`'s **Customers** panel → add each customer: a display name, the email of the
+   existing Supabase user who manages that customer's tickets, and optionally a **local-part** -
+   the part of a support address before `@` (e.g. `sunsetapartments`). Left blank, it defaults to
+   the owner email's own local-part (`owner@example.com` → `owner`), so a customer isn't forced to
+   invent a second address just for this - their account email stays reserved for sign-in/business
+   correspondence with us either way, never used as the literal tenant-facing address. A tenant
+   emailing `<local-part>@<your receiving address>` lands in that owner's inbox specifically - see
    "Multi-customer routing" below for how this works.
 5. `npm install` (pulls in the new `svix` dependency, used for webhook signature verification).
 
@@ -269,6 +272,14 @@ to a local-part with no matching customer is dropped (logged, not an error - mos
 a customer that hasn't been added yet). There's still no public signup flow - adding a customer
 means their manager already has a Supabase user (Authentication → Users → Add user), same as
 every other account in this project.
+
+Set `RESEND_RECEIVING_DOMAIN` to your Resend receiving address's domain (the `<id>.resend.app`
+subdomain shown in Resend dashboard → Emails → Receiving, or a verified custom domain later) so
+`admin.html`'s Customers panel can show each customer's actual full inbound address
+(`local_part@RESEND_RECEIVING_DOMAIN`) instead of a bare local-part you'd have to mentally combine
+with a domain yourself. Display-only - `api/inbound-email.js`'s routing matches on local-part
+alone regardless of domain, so changing this later (e.g. switching to a custom domain) never
+breaks any existing customer's routing, it only updates what the admin panel shows.
 
 **Signature verification is mandatory, not optional** - the endpoint rejects any request that
 doesn't verify against `RESEND_WEBHOOK_SECRET` using the `svix` library, so a random POST to the
@@ -288,11 +299,20 @@ register *that* URL as the webhook endpoint temporarily.
 - **Gated behind real login, not just obscurity** - Supabase auth, checked both client-side (shows
   a sign-in screen) and server-side (`api/triage.js` rejects any request without a valid session
   token, so the API itself is protected even if someone finds the URL directly - a login screen
-  alone wouldn't stop that). One admin user only, added manually via the Supabase dashboard
-  (Authentication → Users → Add user) - there's no signup form, deliberately; build one only once
-  actual beta users need their own accounts, not before. Still `noindex`/unlinked on top of that.
+  alone wouldn't stop that). There's no signup form, deliberately; every account is added manually
+  via the Supabase dashboard (Authentication → Users → Add user). Still `noindex`/unlinked on top
+  of that.
+- **Being a valid Supabase user isn't enough on its own** - a signed-in account also has to be
+  linked to a customer (admin.html's "Customers" panel, `api/admin-customers.js`) before it can
+  triage anything. `requireCustomer()` (`api/_lib/auth.js`) enforces this server-side on every
+  dashboard-facing endpoint (`api/triage.js`, `api/tickets.js`, `api/ticket-action.js`,
+  `api/send-reply.js`, `api/tenant-messages.js`); `dashboard.html` also checks it client-side
+  (`api/customer-status.js`) to show a clean "contact your admin" screen instead of a raw 403 on
+  the first attempt. **This means the `customers` table must have at least one row before anyone
+  - including you, testing locally - can use the dashboard at all.**
 - **One-time setup**: create a Supabase project, add yourself as a user (Authentication → Users →
-  Add user, with a real email + password), then:
+  Add user, with a real email + password), then link yourself to a customer in `admin.html` (see
+  its "Customers" panel), then:
   - Fill `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` into `.env` (and Vercel's dashboard for prod)
   - Fill the `SUPABASE_URL`/`SUPABASE_ANON_KEY` placeholders directly in `dashboard.html`'s
     `<script type="module">` (the anon key is safe to hardcode - it's the public key by design,

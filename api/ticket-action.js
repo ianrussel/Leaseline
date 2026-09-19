@@ -11,7 +11,7 @@
 // it could still leak via a referrer header, a shared screenshot, etc.) could rewrite that
 // ticket's final_response/status even without being able to browse it via api/tickets.js.
 
-import { supabaseAdmin, requireUser } from "./_lib/auth.js";
+import { supabaseAdmin, requireCustomer } from "./_lib/auth.js";
 
 const VALID_STATUSES = ["sent", "copied"];
 
@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const user = await requireUser(req, res);
+  const user = await requireCustomer(req, res);
   if (!user) return;
 
   const { id, final_response, status } = req.body || {};

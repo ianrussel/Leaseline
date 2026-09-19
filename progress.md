@@ -314,6 +314,66 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
         sync. **Breaking for existing local testing**: the `test` local-part used throughout this
         session's manual testing needs to be (re-)added via `admin.html`'s new panel before inbound
         email works again.
+      - **Follow-up same day**: the owner's Supabase account email should stay reserved for
+        sign-in/invites/business correspondence with us, not double as the tenant-facing address -
+        but requiring a *separate* support local-part for every customer was needless friction for
+        the common case. `api/admin-customers.js` now defaults `local_part` to the owner email's
+        own local-part when the admin leaves the field blank (e.g. `owner@example.com` defaults to
+        `owner`) - not literally reusing the same address (Resend can only receive mail for a
+        domain it's configured to receive for, never an arbitrary customer's real domain without
+        them pointing DNS at it), but the same "no extra setup decision required" effect. An
+        explicit local-part is still honored when given, for a customer who wants something more
+        memorable like `sunsetapartments`. `admin.html`'s form field is optional now, with a hint
+        explaining the default.
+      - **Another follow-up, same day**: two more refinements from a design-review conversation -
+        (1) confirmed and documented explicitly that `local_part` is unique per customer at the DB
+        level (the existing `unique` constraint already enforced this - a duplicate insert 23505s,
+        handled with a specific error message), and that `owner_user_id` is always a real,
+        validated Supabase user id, never a free-typed value; (2) new `api/admin-users.js`
+        (admin-only, lists `{id, email}` for every Supabase user) backs a proper dropdown for
+        admin.html's "Owner" field, replacing a free-text email input that could be typo'd - not a
+        new security boundary, `api/admin-customers.js`'s POST already validated `owner_email`
+        against `listUsers()` regardless. Also added a note to admin.html explaining that a
+        customer who wants tenants to keep emailing their existing business address needs a
+        forwarding rule set up on their own end (e.g. Gmail → Forwarding and POP/IMAP) pointed at
+        their assigned local-part address - not something this app can do for them, since Resend
+        can only receive mail for domains it's configured to receive for.
+      - **Third follow-up, same day**: the owner dropdown was listing every Supabase user,
+        including ones that don't make sense to pick for a NEW customer. `api/admin-users.js` now
+        excludes (1) admins (`app_metadata.role === "admin"`) and (2) users who already own a
+        customer - re-selecting an existing owner would silently merge a second local-part's
+        tickets into their existing inbox rather than create a genuinely new customer, which is
+        never what "add a customer" means here. `admin.html` also refreshes this dropdown after
+        both adding and removing a customer, not just on page load, since eligibility changes
+        immediately either way (removing a customer frees their owner back up; adding one removes
+        that owner from future picks).
+      - **Fourth follow-up, same day**: `admin.html` only ever showed a bare local-part, so the
+        admin had to remember the actual receiving domain separately and combine it by hand before
+        giving an address to a customer. New `RESEND_RECEIVING_DOMAIN` env var (display-only -
+        `api/inbound-email.js`'s routing still matches on local-part alone regardless of domain, so
+        this never affects actual routing, only what's shown). `api/admin-customers.js`'s GET
+        response shape changed from a bare array to `{ customers, receiving_domain }` to carry it;
+        `admin.html` now shows each row's actual full address (`local_part@receiving_domain`)
+        instead of a bare local-part, and the explanatory text above the table fills in the real
+        configured domain instead of generic placeholder text.
+- [x] **Gated the dashboard on customer status, not just Supabase login, 2026-09-19.** Until now,
+      any Supabase user (added manually via the Supabase dashboard) could sign into `dashboard.html`
+      and triage messages, even if an admin had never linked them to a customer via `admin.html` -
+      an orphaned account in practice (no local-part, no inbound routing, invisible in the
+      Customers panel), but still fully able to create tickets.
+      - New `requireCustomer()` in `api/_lib/auth.js` - like `requireAdmin`, but checks for a
+        `customers` row with `owner_user_id` = the caller, not `app_metadata.role`. Every
+        dashboard-facing endpoint now uses this instead of `requireUser`: `api/triage.js`,
+        `api/tickets.js`, `api/ticket-action.js`, `api/send-reply.js`, `api/tenant-messages.js`.
+        This is the actual enforcement - a signed-in non-customer now gets a 403 from all of them.
+      - New `api/customer-status.js` (`{ is_customer }`) - purely informational, lets
+        `dashboard.html` show a clean "contact your admin" screen instead of a raw 403 surfacing
+        on the first triage attempt, same relationship as `admin.html`'s client-side role check vs.
+        `requireAdmin`. `showForSession` became `async` to await this check before deciding
+        whether to render the real dashboard or the new `#notCustomerScreen`.
+      - **Immediate consequence**: the `customers` table is currently empty (confirmed via direct
+        query), so this blocks every account, including local testing, until at least one customer
+        row exists. Add one via `admin.html`'s Customers panel before testing the dashboard again.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:
