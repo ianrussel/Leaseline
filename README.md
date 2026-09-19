@@ -94,6 +94,19 @@ defaults). Every later `npx vercel --prod` redeploys the same project to
 the same URL. `.vercelignore` keeps `scripts/`, `dataset/`, and internal
 planning docs out of the deployed bundle.
 
+**Hobby plan caps deployments at 12 Serverless Functions** - each file directly under `api/`
+(everything except `api/_lib/`) counts as one. Cross that limit and the deploy fails outright with
+`"No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan."` - but a
+deploy that reuses a stale cached build can mask this by silently staying on however many
+functions the last successful build had, reporting **Ready** while quietly missing whatever new
+endpoint(s) pushed the count over. If something you just added 404s in production despite a
+"successful" deploy, check the actual function count first
+(`find api -maxdepth 1 -name "*.js" | grep -v _lib | wc -l`) and force a cache-free deploy
+(`vercel deploy --prod --force`) to see the real error before assuming it's a code bug. Currently
+at 11 - consolidate an existing endpoint's response (add a field) before reaching for a new file
+whenever that's a reasonable fit, same reasoning `api/admin-customers.js`'s `eligible_owners` field
+already follows.
+
 ## Waitlist submissions
 
 The form posts to [Formspree](https://formspree.io) (free tier) and
@@ -281,6 +294,15 @@ with a domain yourself. Display-only - `api/inbound-email.js`'s routing matches 
 alone regardless of domain, so changing this later (e.g. switching to a custom domain) never
 breaks any existing customer's routing, it only updates what the admin panel shows.
 
+**A customer can use their own domain instead of the shared `<id>.resend.app` address** - this is
+a customer-facing option, not just an internal setting. If they'd rather tenants email
+`maintenance@theirrealcompany.com` than a `resend.app` address, they (or you, on their behalf)
+point that domain's MX records at Resend (Resend dashboard → Domains → Add Domain → follow the DNS
+instructions) and verify it. Once verified, the exact same local-part routing applies - Resend
+still just accepts any local-part sent to a domain it's configured to receive for, whether that's
+the shared free subdomain or the customer's own verified domain. No code change needed either way;
+it only changes which domain half of that customer's `local_part@<domain>` address is.
+
 **Signature verification is mandatory, not optional** - the endpoint rejects any request that
 doesn't verify against `RESEND_WEBHOOK_SECRET` using the `svix` library, so a random POST to the
 URL (anyone can guess `/api/inbound-email` exists) can't fabricate tickets or spend Inference
@@ -290,6 +312,37 @@ Endpoint usage.
 send webhooks to, so this can't be fully tested against `vercel dev` the way `dashboard.html` can
 - either deploy first, or use a tunnel tool (e.g. `ngrok`) pointed at your local dev server and
 register *that* URL as the webhook endpoint temporarily.
+
+**How the whole flow fits together:**
+
+```mermaid
+flowchart TD
+    A1["Tenant emails\nlocal-part@id.resend.app\n(shared address, default)"] --> C[Resend receives the email]
+    A2["Tenant emails\nlocal-part@customer-domain.com\n(customer's own domain, DNS MX -> Resend)"] --> C
+
+    C --> D["Resend sends webhook: email.received\n(metadata only - from/to/subject, not the body)"]
+    D --> E["api/inbound-email.js verifies the signature\n(svix + RESEND_WEBHOOK_SECRET)"]
+    E -->|invalid| X1[["400 - rejected,\nnothing processed"]]
+    E -->|valid| F["Fetches the full email body\nGET /emails/receiving/:id\n(RESEND_RECEIVING_API_KEY, full access)"]
+
+    F --> G{"Local-part matches\na row in the customers table?"}
+    G -->|no match| H[["Dropped & logged\nno ticket, no tenant_messages row"]]
+    G -->|match| I["Insert a PENDING row into tenant_messages\nunder that customer's owner_user_id"]
+
+    I --> J["dashboard.html's Tenant Inbox\nshows it, oldest pending message first"]
+    J --> K["Property manager clicks it\n(auto-fills the Tenant Message window - nothing\nsubmitted yet, no AI call made)"]
+    K --> L["Manager clicks Triage"]
+    L --> M["api/triage.js: fine-tuned model + safety-net check\ncreates a ticket, links tenant_messages.ticket_id"]
+    M --> N["Manager reviews/edits the AI-drafted reply"]
+    N --> O["Manager clicks Send via email"]
+    O --> P["api/send-reply.js sends for real via Resend\n(RESEND_API_KEY, sending-only key)"]
+    P --> Q["Ticket marked 'sent'\ntenant_messages row marked 'resolved'"]
+```
+
+Two things worth reading off this diagram directly: (1) receiving an email never auto-creates a
+ticket by itself - a human has to click "Triage" first (see progress.md's "Inbound email
+redesigned" entry for why); (2) the shared address and a customer's own verified domain converge
+at the very first step - everything after "Resend receives the email" is identical either way.
 
 ## Dashboard (internal preview)
 
@@ -380,6 +433,27 @@ once real beta customers need their own accounts).
 
 Any user created this way can log into `dashboard.html` and use the triage tool. It does **not**
 grant `admin.html` access - that's a separate step:
+
+### Fix invite/magic-link emails redirecting to localhost
+
+If you use Supabase's **"Send an invite"** option (instead of "Create new user" + Auto Confirm
+above) - or any other flow that emails a link (password reset, magic link) - and the link lands on
+`http://localhost:3000` instead of the deployed site, this is a Supabase **project setting**, not
+something in this repo's code: every such email redirects to the project's configured **Site
+URL**, which defaults to `http://localhost:3000` on a new project and stays that way until changed
+by hand. Confirmed this isn't something `api/_lib/auth.js`'s service_role key can read or fix -
+Supabase's public `/auth/v1/settings` endpoint doesn't expose it, and there's no per-invite
+override in the dashboard's UI (only via `inviteUserByEmail()`'s `redirectTo` option
+programmatically, which nothing here calls).
+
+**Fix**: Supabase dashboard → Authentication → URL Configuration →
+- Set **Site URL** to `https://faultline-ruby.vercel.app` (or your custom domain, once you have
+  one)
+- Add the same URL to **Redirect URLs** (an allow-list - Supabase rejects a redirect to anything
+  not on it)
+
+Do this once per Supabase project (so once for each of staging/production, if you're running
+both - see "Staging vs. production" below).
 
 ### Grant admin access (admin.html access)
 

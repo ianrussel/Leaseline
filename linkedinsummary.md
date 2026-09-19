@@ -1,6 +1,6 @@
-# LinkedIn Experience Draft — Leaseline
+# LinkedIn Experience Draft - Leaseline
 
-Add as an **Experience** entry (not just "Projects") — it carries more weight for
+Add as an **Experience** entry (not just "Projects") - it carries more weight for
 recruiter search and the skills algorithm.
 
 - **Company:** Leaseline · Self-employed
@@ -10,7 +10,7 @@ recruiter search and the skills algorithm.
 ## Description
 
 Built and deployed an AI-powered maintenance-triage SaaS for residential property
-managers end-to-end — from fine-tuning the model to shipping the production web app.
+managers end-to-end - from fine-tuning the model to shipping the production web app.
 
 - Fine-tuned a Qwen2.5-1.5B LLM (LoRA/PEFT) to classify tenant maintenance requests
   by category and urgency and draft reply text, trained on rented GPU compute and

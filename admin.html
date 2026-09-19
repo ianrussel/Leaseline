@@ -162,6 +162,17 @@
               can only receive mail for domains it's configured to receive for, never an arbitrary
               customer's real inbox provider.
             </p>
+            <p class="text-muted small mb-3">
+              <strong>Plan/usage columns are informational only</strong> - no payment processor is
+              integrated yet (Stripe/LemonSqueezy - see progress.md's Phase 3 notes), so nothing
+              here charges anyone or blocks a customer from triaging past their limit. Beta status
+              locks in <code>BETA_MONTHLY_PRICE_USD</code> for <code>BETA_DURATION_MONTHS</code>
+              (default 12) from when it's granted - changing that env var later only affects
+              customers granted beta afterward, never shortens or extends one already locked in,
+              since the exact expiry date is recorded on that customer's own row - and is capped
+              at <code>MAX_BETA_USERS</code> total - requesting beta past
+              the cap silently falls back to the standard rate rather than failing the add.
+            </p>
             <div class="table-responsive mb-3">
               <table class="table table-sm align-middle mb-0">
                 <thead>
@@ -169,16 +180,19 @@
                     <th>Name</th>
                     <th>Inbound address</th>
                     <th>Owner</th>
+                    <th>Plan</th>
+                    <th>Usage</th>
+                    <th>Renews / ends</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody id="customersBody">
-                  <tr><td colspan="4" class="text-muted small">Loading...</td></tr>
+                  <tr><td colspan="7" class="text-muted small">Loading...</td></tr>
                 </tbody>
               </table>
             </div>
             <form id="customerForm" class="row g-2 align-items-end">
-              <div class="col-12 col-sm-4">
+              <div class="col-12 col-sm-3">
                 <label class="form-label small" for="customerName">Name</label>
                 <input type="text" class="form-control form-control-sm" id="customerName" placeholder="Sunset Apartments" required>
               </div>
@@ -192,7 +206,13 @@
                   <option value="" disabled selected>Choose a user...</option>
                 </select>
               </div>
-              <div class="col-12 col-sm-2">
+              <div class="col-6 col-sm-2">
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="customerIsBeta">
+                  <label class="form-check-label small" for="customerIsBeta">Beta rate</label>
+                </div>
+              </div>
+              <div class="col-6 col-sm-1">
                 <button type="submit" class="btn btn-primary btn-sm w-100" id="addCustomerBtn">Add</button>
               </div>
             </form>
@@ -234,6 +254,7 @@
   const customerName = document.getElementById('customerName');
   const customerLocalPart = document.getElementById('customerLocalPart');
   const customerOwnerEmail = document.getElementById('customerOwnerEmail');
+  const customerIsBeta = document.getElementById('customerIsBeta');
   const addCustomerBtn = document.getElementById('addCustomerBtn');
   const customerError = document.getElementById('customerError');
 
@@ -325,58 +346,90 @@
     }
   }
 
-  async function loadOwnerOptions() {
-    try {
-      const res = await authedFetch('/api/admin-users');
-      if (!res.ok) throw new Error('failed');
-      const users = await res.json();
-      const placeholder = customerOwnerEmail.querySelector('option[value=""]');
-      customerOwnerEmail.innerHTML = '';
-      if (placeholder) customerOwnerEmail.appendChild(placeholder);
-      users.forEach((u) => {
-        const opt = document.createElement('option');
-        opt.value = u.email;
-        opt.textContent = u.email;
-        customerOwnerEmail.appendChild(opt);
-      });
-    } catch (err) {
-      console.error('Failed to load users for owner dropdown:', err);
-    }
+  // Renders the "Owner" dropdown from eligible_owners in api/admin-customers.js's GET response -
+  // used to be its own endpoint/fetch (api/admin-users.js), folded in here to save a function slot
+  // (see admin-customers.js's top comment on the Vercel Hobby plan's 12-function cap).
+  function renderOwnerOptions(eligibleOwners) {
+    const placeholder = customerOwnerEmail.querySelector('option[value=""]');
+    customerOwnerEmail.innerHTML = '';
+    if (placeholder) customerOwnerEmail.appendChild(placeholder);
+    eligibleOwners.forEach((u) => {
+      const opt = document.createElement('option');
+      opt.value = u.email;
+      opt.textContent = u.email;
+      customerOwnerEmail.appendChild(opt);
+    });
   }
 
   async function loadCustomers() {
     try {
       const res = await authedFetch('/api/admin-customers');
       if (!res.ok) throw new Error('failed');
-      const { customers, receiving_domain } = await res.json();
+      const { customers, receiving_domain, eligible_owners } = await res.json();
       if (receiving_domain) receivingDomainNote.textContent = receiving_domain;
+      renderOwnerOptions(eligible_owners || []);
       if (!customers.length) {
-        customersBody.innerHTML = '<tr><td colspan="4" class="text-muted small">No customers yet.</td></tr>';
+        customersBody.innerHTML = '<tr><td colspan="7" class="text-muted small">No customers yet.</td></tr>';
         return;
       }
       // Shows the full, actually-usable address (not just the local-part) so this can be
       // copy-pasted straight to a customer - falls back to bare local-part if
       // RESEND_RECEIVING_DOMAIN isn't set, same info either way, just less convenient.
-      customersBody.innerHTML = customers.map((c) => `
+      customersBody.innerHTML = customers.map((c) => {
+        const stillBeta = c.is_beta && c.beta_locked_until && new Date(c.beta_locked_until) > new Date();
+        const overLimit = c.triages_used > c.triage_limit;
+        const canceled = !!c.access_ends_at;
+        // Canceled customers keep full access until access_ends_at (cancel-at-period-end, no
+        // refund - see api/admin-customers.js's PATCH) - `is_active` tells apart "canceled but
+        // still working" from "canceled and access has actually ended".
+        const dateCell = canceled
+          ? `<span class="${c.is_active ? 'text-warning' : 'text-danger'}">${c.is_active ? 'Access ends' : 'Ended'} ${new Date(c.access_ends_at).toLocaleDateString()}</span>`
+          : new Date(c.period_end).toLocaleDateString();
+        const actionBtn = canceled
+          ? `<button type="button" class="btn btn-sm btn-outline-success reactivate-customer-btn">Reactivate</button>`
+          : `<button type="button" class="btn btn-sm btn-outline-warning cancel-customer-btn">Cancel</button>`;
+        return `
         <tr data-id="${c.id}">
           <td>${escapeHtml(c.name)}</td>
           <td class="text-mono small">${escapeHtml(receiving_domain ? `${c.local_part}@${receiving_domain}` : c.local_part)}</td>
           <td class="small text-muted">${escapeHtml(c.owner_email || '(unknown user)')}</td>
-          <td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-customer-btn">Remove</button></td>
+          <td><span class="badge ${stillBeta ? 'bg-warning text-dark' : 'bg-light text-dark border'}">${stillBeta ? 'Beta' : 'Standard'}</span> <span class="text-muted small">$${c.effective_price}/mo</span></td>
+          <td class="small ${overLimit ? 'text-danger fw-bold' : ''}">${c.triages_used} / ${c.triage_limit}</td>
+          <td class="small">${dateCell}</td>
+          <td class="text-end text-nowrap">${actionBtn} <button type="button" class="btn btn-sm btn-outline-danger remove-customer-btn">Remove</button></td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
 
       customersBody.querySelectorAll('.remove-customer-btn').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const row = btn.closest('tr');
           if (!confirm('Remove this customer? Inbound email to their address will stop being routed - existing tickets are unaffected.')) return;
           await authedFetch('/api/admin-customers', { method: 'DELETE', body: JSON.stringify({ id: row.dataset.id }) });
+          loadCustomers(); // also refreshes the owner dropdown - that owner is eligible again now
+        });
+      });
+
+      customersBody.querySelectorAll('.cancel-customer-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('tr');
+          if (!confirm('Cancel this customer? They keep full access until the end of their current period, then access stops - no refund, nothing deleted.')) return;
+          const res = await authedFetch('/api/admin-customers', { method: 'PATCH', body: JSON.stringify({ id: row.dataset.id, action: 'cancel' }) });
+          if (!res.ok) { const data = await res.json(); customerError.textContent = data.error || 'Failed to cancel.'; customerError.hidden = false; return; }
           loadCustomers();
-          loadOwnerOptions(); // that owner is eligible again now
+        });
+      });
+
+      customersBody.querySelectorAll('.reactivate-customer-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('tr');
+          const res = await authedFetch('/api/admin-customers', { method: 'PATCH', body: JSON.stringify({ id: row.dataset.id, action: 'reactivate' }) });
+          if (!res.ok) { const data = await res.json(); customerError.textContent = data.error || 'Failed to reactivate.'; customerError.hidden = false; return; }
+          loadCustomers();
         });
       });
     } catch (err) {
-      customersBody.innerHTML = '<tr><td colspan="4" class="text-muted small">Couldn\'t load customers.</td></tr>';
+      customersBody.innerHTML = '<tr><td colspan="7" class="text-muted small">Couldn\'t load customers.</td></tr>';
     }
   }
 
@@ -393,6 +446,7 @@
           name: customerName.value.trim(),
           local_part: customerLocalPart.value.trim(),
           owner_email: customerOwnerEmail.value.trim(),
+          is_beta: customerIsBeta.checked,
         }),
       });
       const data = await res.json();
@@ -402,8 +456,7 @@
         return;
       }
       customerForm.reset();
-      loadCustomers();
-      loadOwnerOptions(); // that owner is no longer eligible for a second customer
+      loadCustomers(); // also refreshes the owner dropdown - that owner is no longer eligible again
     } catch (err) {
       customerError.textContent = 'Network error - is the server running?';
       customerError.hidden = false;
@@ -420,8 +473,7 @@
       wrapper.hidden = false;
       userEmail.textContent = session.user.email;
       loadCandidates();
-      loadCustomers();
-      loadOwnerOptions();
+      loadCustomers(); // also populates the owner dropdown
     } else if (session) {
       // Signed in, but not an admin - the real enforcement is server-side (requireAdmin() in
       // api/_lib/auth.js); this is just a clean message instead of a panel that silently 403s.

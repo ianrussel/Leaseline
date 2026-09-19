@@ -374,6 +374,188 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
       - **Immediate consequence**: the `customers` table is currently empty (confirmed via direct
         query), so this blocks every account, including local testing, until at least one customer
         row exists. Add one via `admin.html`'s Customers panel before testing the dashboard again.
+- [x] **Docs: custom-DNS option + inbound-email flow chart, 2026-09-19.** Two documentation
+      additions to `README.md`'s "Inbound email" section, no code changes:
+      - Made explicit that a customer isn't stuck with the shared `<id>.resend.app` address - they
+        can point their own domain's MX records at Resend (Resend dashboard → Domains → Add
+        Domain) and use `maintenance@theirrealcompany.com`-style addresses instead. This was
+        already technically true (local-part routing doesn't care which domain the mail arrived
+        on) but wasn't called out as a customer-facing choice anywhere before now.
+      - Added a Mermaid flow chart walking the entire inbound-email path end to end: both the
+        shared-address and custom-domain branches converging at "Resend receives the email",
+        through webhook verification, the customer lookup (and the dropped-email branch for an
+        unrecognized local-part), the pending `tenant_messages` insert, dashboard.html's inbox,
+        the manual Triage/review/Send steps, and the final `sent`/`resolved` status flip. Makes
+        the "nothing is automatic until a human clicks Triage" design decision (see the earlier
+        "Inbound email redesigned" entry) visible at a glance instead of only written prose.
+- [x] **Root-caused a real deploy failure: Vercel Hobby's 12-function cap, 2026-09-19.** The owner
+      dropdown (`api/admin-users.js`) and the customer-status gate (`api/customer-status.js`) -
+      both added earlier the same day - never actually reached production, despite the user
+      reporting the deploy as "successful." `api/*.js` had quietly grown to 13 route files
+      (excluding `_lib`), one over the Hobby plan's 12-Serverless-Functions-per-deployment limit.
+      What made this hard to see: the deployment the user was testing against showed **Ready**
+      with only 11 functions live - it had silently reused a stale cached build from before those
+      two files existed, rather than failing loudly. Running a fresh, cache-free deploy
+      (`vercel deploy --prod --force`) surfaced the real error immediately: `"No more than 12
+      Serverless Functions can be added to a Deployment on the Hobby plan."` Confirmed via
+      `vercel inspect <url> --json`'s build output (only 11 lambdas, `admin-users` and
+      `customer-status` both absent) and by checking that the missing files WERE correctly
+      committed and pushed to `origin/main` (ruled out a git/push mistake before looking at Vercel
+      itself).
+      - Fixed by consolidating rather than dropping functionality: `api/admin-users.js`'s
+        eligible-owner list folded into `api/admin-customers.js`'s existing GET response as a new
+        `eligible_owners` field (`admin.html` now populates the dropdown from `loadCustomers()`'s
+        response instead of a separate fetch); `api/customer-status.js` removed entirely -
+        `dashboard.html`'s `checkIsCustomer()` now piggybacks on the `/api/tickets` call it was
+        already about to make anyway, checking specifically for the `403` `requireCustomer()`
+        returns, rather than a dedicated endpoint.
+      - Back down to 11 functions - one under the cap, not sitting exactly at it, so there's a
+        little headroom before this recurs. **Worth remembering for any future new `api/*.js`
+        file**: check the function count first (`find api -maxdepth 1 -name "*.js" | grep -v
+        _lib | wc -l`) - crossing 12 again will reproduce this exact silent-until-you-force-a-
+        fresh-deploy failure mode.
+- [x] **Four issues in one session, 2026-09-19:**
+      1. **Admins got blocked by requireCustomer().** An admin signing into `dashboard.html` saw
+         "your account isn't set up as a customer yet" - correct for a real non-customer account,
+         wrong for an admin, who was never meant to need a `customers` row at all. Fixed:
+         `requireCustomer()` (`api/_lib/auth.js`) now returns immediately for
+         `app_metadata.role === "admin"`, before touching the `customers` table.
+      2. **Invite emails redirect to localhost.** Not fixable in code - Supabase's public
+         `/auth/v1/settings` endpoint doesn't expose it, confirming this lives in Authentication ->
+         URL Configuration in the Supabase dashboard, not something the Admin API/service_role key
+         can read or change. Root cause is almost certainly the project's default **Site URL**
+         still being `http://localhost:3000` - every invite/magic-link email redirects there
+         regardless of which environment actually sent it, since users are added through the
+         dashboard's "Add user" button (no per-invite `redirectTo` override available there, only
+         via `inviteUserByEmail()` programmatically, which nothing here calls). Needs the user to
+         change Site URL to `https://faultline-ruby.vercel.app` and add it to Redirect URLs by
+         hand - documented in README.md's "User & access management" section.
+      3. **New tenant-message notification.** A tenant's email was correctly routed and saved as a
+         pending `tenant_messages` row (confirmed via Resend's own delivery log), but the property
+         manager had no way to know it arrived short of opening `dashboard.html` - nothing was
+         ever coded to notify them. `api/inbound-email.js` now emails the resolved owner a short
+         "new tenant message" notification right after saving the pending row (RESEND_API_KEY,
+         sending-only), best-effort/non-fatal to the webhook itself. Same Resend sandbox
+         restriction flagged elsewhere in this project applies - `onboarding@resend.dev` can only
+         send to the account's own verified email until a real sending domain is verified.
+      4. **Billing/usage scaffolding** - explicitly NOT real billing (no Stripe/LemonSqueezy
+         integrated - deferred per progress.md's Phase 3 notes), just tracking and displaying
+         usage against a plan:
+         - New `api/_lib/billing.js`: `STANDARD_MONTHLY_PRICE_USD`/`BETA_MONTHLY_PRICE_USD`/
+           `MONTHLY_TRIAGE_LIMIT`/`MAX_BETA_USERS` env vars (all optional, sensible defaults),
+           `effectivePrice()`, `periodEnd()`, `countUsage()` (always computed live from `tickets`
+           rows since `current_period_start`, never a separately incremented counter).
+         - `customers` gained `is_beta`, `beta_locked_until`, `current_period_start`,
+           `last_reminder_sent_at` columns. Beta status is capped at `MAX_BETA_USERS` and enforced
+           server-side in `api/admin-customers.js`'s POST - requesting beta past the cap is
+           silently downgraded to the standard rate, never rejected, per the explicit spec: adding
+           a customer should never fail just because beta slots ran out.
+         - `api/tickets.js`'s response shape changed from a bare array to `{ tickets, usage }` -
+           `dashboard.html` shows a "Your plan" card (used/limit, price, reset date) from it; a
+           customer's usage lookup failing, or an admin having no `customers` row at all, both just
+           hide the card rather than error.
+         - `admin.html`'s Customers table gained Plan/Usage/Renews columns and an "is_beta"
+           checkbox on the add form, sourced from `api/admin-customers.js`'s GET response.
+         - New `api/billing-reminders.js`, a second daily cron (`vercel.json`): rolls
+           `current_period_start` forward a month once a period ends (which is what "resets"
+           usage, since it's computed live), and emails a friendly "your plan period ends soon...
+           disregard if already renewed" reminder `REMINDER_DAYS_BEFORE` (3) days out, at most once
+           per period per customer. This is the 12th function - exactly at the Hobby cap, no
+           headroom left (see the cap-consolidation entry just above).
+         - **Overage is flagged, not enforced**: exceeding `MONTHLY_TRIAGE_LIMIT` mid-period shows
+           a warning to both the customer and admin, but never blocks triage. Deliberate: this is a
+           maintenance-triage app where a blocked emergency message is a real safety/liability
+           risk, and there's no payment processor yet to actually charge overage anyway - once
+           real billing exists, this is the natural place to add either a hard block or automatic
+           overage billing.
+         - **Requires the SQL to actually be run** - `supabase/schema.sql`'s new `alter table
+           customers add column ...` statements for `is_beta`/`beta_locked_until`/
+           `current_period_start`/`last_reminder_sent_at` were NOT applied automatically (confirmed
+           via a direct query returning `column customers.is_beta does not exist`) - until run,
+           `api/admin-customers.js`'s GET 500s and admin.html's Customers panel is broken.
+- [x] **Resend sandbox restriction found blocking real tenant replies, 2026-09-19.** "Send via
+      email" silently failed for an actual tenant address - confirmed via Resend's send log
+      showing zero record of the attempt (rejected before delivery, not a bounce/error). Root
+      cause: `onboarding@resend.dev` (the `from` in `send-reply.js` and three other files) is a
+      Resend sandbox address that can only send to the account's own verified email - every prior
+      "successful" send happened to go to that same address, never a genuinely different
+      recipient, so this never surfaced until now. Not fixable in code - needs a real verified
+      sending domain (Resend dashboard → Domains → Add Domain → DNS records). Logged as a TODO
+      (not yet acted on - user is still deciding on a domain): whatever domain gets bought for the
+      marketing site should double as the sending domain, since a mismatched one looks less
+      trustworthy to recipients and weakens deliverability. Affects `api/send-reply.js`,
+      `api/analyze-tickets.js`, `api/billing-reminders.js`, and `api/inbound-email.js`'s owner
+      notification - all four need their `from:` updated together once a domain is verified.
+- [x] **"Reopen" action + clearer sent/not-sent status on Recent tickets, 2026-09-19.** Until now,
+      a triaged ticket that wasn't immediately sent or copied had no way back into the working
+      panel - the manager had to remember to act on it in that same moment, or it was effectively
+      stuck (visible in history, `status` shown as a bare 'new'/'sent'/'copied' string, no way to
+      resume it). Fixed in `dashboard.html` only, no API changes (every field needed -
+      `raw_message`, `category`, `urgency`, `draft_response`, `final_response`, `tenant_contact`,
+      `status` - was already in `api/tickets.js`'s response):
+      - Status badges now read as "Not sent" (amber)/"Sent" (green)/"Copied" (blue) instead of the
+        raw status string.
+      - Every row got a "Reopen" button - `reopenTicket()` repopulates the message box and Result
+        panel (category/urgency/safety note/reply text) and sets `currentTicketId` to the existing
+        ticket, so Send/Copy work again without a new AI call - it's already been triaged, reopening
+        just re-exposes the actions. Deliberately available for `sent`/`copied` tickets too, not
+        just `new` ones - a manager might legitimately want to send a follow-up on something
+        already handled, not only recover something they forgot to act on.
+      - Prefers `final_response` over `draft_response` when reopening, so resuming a
+        previously-edited reply doesn't silently revert those edits back to the model's original.
+- [x] **Configurable beta duration, 2026-09-19.** Beta lock length was hardcoded to exactly one
+      year (`setFullYear(+1)` in `api/admin-customers.js`). New `BETA_DURATION_MONTHS` env var
+      (`api/_lib/billing.js`, default 12) replaces the hardcoded value. Confirmed/documented the
+      part that actually mattered to get right: `beta_locked_until` is computed ONCE, at grant
+      time, from whatever `BETA_DURATION_MONTHS` is set to *then*, and stored as a fixed timestamp
+      on that customer's own row - `effectivePrice()` only ever reads it back, never recomputes it
+      from the current env var value. So raising or lowering `BETA_DURATION_MONTHS` later only
+      affects customers granted beta AFTER the change; a customer who locked in 12 months keeps
+      exactly 12 months even if the app owner changes the default to 18 the next day. This was
+      already true structurally before this change (an absolute stored timestamp, not a formula
+      re-evaluated live) - this just made the duration itself configurable instead of hardcoded,
+      and added explicit comments in `billing.js`/`schema.sql`/`admin.html` spelling out why that
+      matters, since it's easy to accidentally break by "simplifying" beta_locked_until into a
+      computed property later.
+- [x] **Cancellation plan + implementation, 2026-09-19.** Real design question: a customer already
+      paid, then decides to cancel - what happens to remaining usage/access? **Chosen policy:
+      cancel-at-period-end, no refund, no immediate cutoff, data kept.** They keep full access
+      (including any remaining quota) until the period they already paid for ends, regardless of
+      how much they've used - matches how virtually every flat-rate SaaS subscription works, and
+      building real proration/refund logic would be pointless anyway with no payment processor
+      integrated yet. After that period, no renewal, no more inbound routing, no more triage
+      access - but nothing is ever deleted (tickets/tenant_messages/the customer row itself all
+      stay, for records or a possible win-back).
+      - `customers` gained `canceled_at` (historical record of when canceled) and `access_ends_at`
+        (the actual cutoff - computed ONCE at cancel time as that period's `periodEnd()`, same
+        "compute once, store it" pattern as `beta_locked_until`, so it can't drift if
+        `current_period_start` is ever touched afterward for an unrelated reason).
+      - New `isActive()` in `api/_lib/billing.js` - true whenever `access_ends_at` is unset or
+        still in the future.
+      - `requireCustomer()` (`api/_lib/auth.js`) now also rejects a customer whose access has
+        ended, with a distinct message ("your subscription has ended") from "never set up as a
+        customer" - this is the actual enforcement point, since every dashboard-facing endpoint
+        already calls it.
+      - `api/inbound-email.js`'s `findCustomerByAddress` also checks `isActive()` - a canceled
+        customer past their end date stops receiving new `tenant_messages` rows instead of quietly
+        accumulating messages nobody can act on anymore.
+      - `api/billing-reminders.js` skips a canceled customer entirely (no period rollover - their
+        access ends on its own via `access_ends_at`; no "your plan renews soon" reminder, since
+        that framing would be wrong for someone who already asked to stop).
+      - New `PATCH {id, action}` on `api/admin-customers.js` (no new file - already at the 12-
+        function Hobby cap): `cancel` sets `access_ends_at` to the end of the CURRENT period, not
+        now; `reactivate` clears both columns and, only if access had already lapsed, starts a
+        fresh period from the moment of reactivation (nothing left to resume from the old one).
+      - `admin.html`'s Customers table shows "Access ends `<date>`" (amber, still active) or
+        "Ended `<date>`" (red, access already stopped) for a canceled customer instead of a normal
+        renewal date, with Cancel/Reactivate buttons alongside the existing (unchanged, still
+        permanent) Remove button.
+      - `dashboard.html`'s "not a customer" screen now shows the server's actual reason (never set
+        up vs. subscription ended) instead of always the same generic message.
+      - **Still needs the schema applied** - same `is_beta`/etc. columns from the earlier billing
+        entry above were confirmed STILL not run (`column customers.is_beta does not exist`,
+        checked again), now joined by `canceled_at`/`access_ends_at`. `api/admin-customers.js`'s
+        GET remains 500ing in production until all six `alter table` statements run.
 - [x] **Real-tenant-data training pipeline** - closes the loop on `dataset/real_examples.jsonl`
       staying permanently empty, 2026-09-19:
       - `api/analyze-tickets.js`, a **daily Vercel Cron job** (`vercel.json`) - not hourly:
@@ -400,6 +582,18 @@ adapter worth standing up; dashboard/auth/billing still deliberately wait on con
       - New env vars: `CRON_SECRET` (verifies cron requests are really from Vercel),
         `ADMIN_EMAIL`, `RESEND_API_KEY` (new account - free tier, needed because Formspree's
         form→email model doesn't fit "send FROM our code TO an address in `.env`").
+- [ ] **Buy a real domain and verify it with Resend for sending** - blocking issue found
+      2026-09-19: `api/send-reply.js`'s "Send via email" silently fails for any real tenant
+      address, because `onboarding@resend.dev` (the current `from`) is a Resend sandbox address
+      that can only send to the account's own verified email - confirmed via Resend's send log
+      showing zero record of the attempt (rejected before delivery, not a bounce). Same
+      restriction affects `api/analyze-tickets.js`, `api/billing-reminders.js`, and
+      `api/inbound-email.js`'s owner-notification email - all four use the same sandbox `from`
+      address. Fix: Resend dashboard → Domains → Add Domain → add the DNS records (SPF/DKIM) at
+      the registrar → once verified, update the `from:` in all four files to use it. Whatever
+      domain gets bought for the marketing site should be the one used here too (or a subdomain of
+      it, e.g. `mail.<domain>`) - a mismatched sending domain looks less trustworthy to recipients
+      and weakens deliverability versus one that matches the actual product's web presence.
 - [ ] Stripe account (billing)
 - [ ] Wire dashboard → inference endpoint → auth → billing - **auth part done above**; billing
       gating still not started (no Stripe account, no subscription check anywhere yet)

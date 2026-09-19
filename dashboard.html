@@ -79,7 +79,7 @@
   <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
     <div class="card-body p-4">
       <h4 class="mb-1 brand-wordmark fs-3">LEASELINE</h4>
-      <p class="text-muted mb-3">
+      <p class="text-muted mb-3" id="notCustomerMessage">
         You're signed in, but your account isn't set up as a customer yet - contact your admin to
         get set up before you can triage anything.
       </p>
@@ -227,6 +227,23 @@
           </div>
         </div>
 
+        <div class="card" id="usageCard" hidden>
+          <div class="card-body">
+            <h5 class="card-title mb-2">Your plan</h5>
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+              <span class="text-mono" id="usageCount"></span>
+              <div class="progress flex-grow-1" style="min-width: 160px; height: 8px;" role="progressbar">
+                <div class="progress-bar" id="usageBar"></div>
+              </div>
+              <span class="text-muted small" id="usagePeriod"></span>
+            </div>
+            <div class="alert alert-warning py-2 px-3 small mt-2 mb-0" id="usageOverLimitNote" hidden>
+              You've used more triages than your plan's limit this period. This isn't blocked -
+              nothing stops working - but let your admin know if this is a regular pattern.
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-body">
             <h5 class="card-title mb-3">Recent tickets</h5>
@@ -240,6 +257,7 @@
                     <th>Urgency</th>
                     <th>Status</th>
                     <th>Message</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody id="ticketsBody">
@@ -282,6 +300,11 @@
   // while building this: calling a hoisted function early is fine, but its body reading a `const`
   // declared further down the file isn't - that const is still in its temporal dead zone).
   const ticketsBody = document.getElementById('ticketsBody');
+  const usageCard = document.getElementById('usageCard');
+  const usageCount = document.getElementById('usageCount');
+  const usageBar = document.getElementById('usageBar');
+  const usagePeriod = document.getElementById('usagePeriod');
+  const usageOverLimitNote = document.getElementById('usageOverLimitNote');
 
   async function authedFetch(url, options = {}) {
     const { data: { session } } = await supabase.auth.getSession();
@@ -299,13 +322,41 @@
     return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // null for an admin account (no `customers` row to compute it from - see api/tickets.js) - the
+  // card just stays hidden in that case, same as it would for any customer whose usage lookup
+  // happened to fail server-side.
+  function renderUsage(usage) {
+    if (!usage) {
+      usageCard.hidden = true;
+      return;
+    }
+    usageCard.hidden = false;
+    usageCount.textContent = `${usage.used} / ${usage.limit} triages`;
+    const pct = Math.min(100, Math.round((usage.used / usage.limit) * 100));
+    usageBar.style.width = `${pct}%`;
+    usageBar.className = 'progress-bar' + (usage.used > usage.limit ? ' bg-warning' : '');
+    const resetDate = new Date(usage.period_end).toLocaleDateString();
+    usagePeriod.textContent = `$${usage.price}/mo · resets ${resetDate}`;
+    usageOverLimitNote.hidden = usage.used <= usage.limit;
+  }
+
+  const STATUS_BADGES = {
+    sent: '<span class="badge bg-success">Sent</span>',
+    copied: '<span class="badge bg-info text-dark">Copied</span>',
+    new: '<span class="badge bg-warning text-dark">Not sent</span>',
+  };
+
+  let ticketsById = {}; // refreshed on every loadTickets() - backs the Reopen button below
+
   async function loadTickets() {
     try {
       const res = await authedFetch('/api/tickets');
       if (!res.ok) throw new Error('failed');
-      const tickets = await res.json();
+      const { tickets, usage } = await res.json();
+      renderUsage(usage);
+      ticketsById = Object.fromEntries(tickets.map((t) => [t.id, t]));
       if (!tickets.length) {
-        ticketsBody.innerHTML = '<tr><td colspan="6" class="text-muted small">No tickets yet.</td></tr>';
+        ticketsBody.innerHTML = '<tr><td colspan="7" class="text-muted small">No tickets yet.</td></tr>';
         return;
       }
       ticketsBody.innerHTML = tickets.map((t) => `
@@ -314,13 +365,47 @@
           <td class="small text-muted">${new Date(t.created_at).toLocaleString()}</td>
           <td><span class="badge bg-light text-dark border">${escapeHtml(t.category)}</span></td>
           <td><span class="badge badge-${t.urgency.toLowerCase()}">${escapeHtml(t.urgency)}${t.safety_override ? ' ⚠' : ''}</span></td>
-          <td><span class="badge bg-secondary">${t.status}</span></td>
+          <td>${STATUS_BADGES[t.status] || STATUS_BADGES.new}</td>
           <td class="small text-truncate" style="max-width: 260px;">${escapeHtml(t.raw_message)}</td>
+          <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary reopen-ticket-btn" data-id="${t.id}">Reopen</button></td>
         </tr>
       `).join('');
+
+      ticketsBody.querySelectorAll('.reopen-ticket-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const t = ticketsById[btn.dataset.id];
+          if (t) reopenTicket(t);
+        });
+      });
     } catch (err) {
-      ticketsBody.innerHTML = '<tr><td colspan="6" class="text-muted small">Couldn\'t load ticket history.</td></tr>';
+      ticketsBody.innerHTML = '<tr><td colspan="7" class="text-muted small">Couldn\'t load ticket history.</td></tr>';
     }
+  }
+
+  // Pulls an already-triaged ticket (sent, copied, or never acted on) back into the working
+  // panel - no new AI call, it's already been triaged; this just re-exposes Send/Copy against the
+  // EXISTING ticket (currentTicketId), same as it worked the moment triage originally finished.
+  // Prefers final_response (what was actually sent/copied, after any edits) over draft_response
+  // (the model's untouched original) when both exist, so re-sending starts from the last-edited
+  // version rather than reverting edits the manager already made.
+  function reopenTicket(t) {
+    errorBox.hidden = true;
+    messageInput.value = t.raw_message;
+    tenantContactInput.value = t.tenant_contact || '';
+    tenantContactWasAutoFilled = false;
+    emailDetectedNote.hidden = true;
+    selectedTenantMessageId = null; // not from the inbox - reopening an existing ticket, not triaging a new message
+
+    currentTicketId = t.id;
+    catBadge.textContent = t.category;
+    urgencyBadge.textContent = t.urgency;
+    urgencyBadge.className = 'badge badge-' + t.urgency.toLowerCase();
+    safetyNote.hidden = !t.safety_override;
+    replyText.value = t.final_response || t.draft_response || '';
+    sendHint.hidden = !!t.tenant_contact;
+    actionNote.hidden = true;
+    result.hidden = false;
+    result.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   const loginScreen = document.getElementById('loginScreen');
@@ -328,6 +413,7 @@
   const loginBtn = document.getElementById('loginBtn');
   const loginError = document.getElementById('loginError');
   const notCustomerScreen = document.getElementById('notCustomerScreen');
+  const notCustomerMessage = document.getElementById('notCustomerMessage');
   const notCustomerLogoutBtn = document.getElementById('notCustomerLogoutBtn');
   const wrapper = document.getElementById('wrapper');
   const logoutBtn = document.getElementById('logoutBtn');
@@ -343,24 +429,34 @@
 
   // Purely a "show a clean screen instead of a raw 403 on the first triage attempt" nicety - the
   // real enforcement is requireCustomer() (api/_lib/auth.js), which every endpoint below already
-  // calls independently of this check. Fails closed (blocks) on a network error, same reasoning
-  // as failing closed anywhere else auth-adjacent - showing the real dashboard by default if this
-  // check couldn't even run would be the wrong direction to fail in.
+  // calls independently of this check. Piggybacks on /api/tickets (which loadTickets() would call
+  // right after anyway) instead of a dedicated endpoint - this used to be its own
+  // api/customer-status.js, removed to save a function slot (see api/admin-customers.js's top
+  // comment on the Vercel Hobby plan's 12-function cap). Specifically checks for 403 (exactly what
+  // requireCustomer returns for a non-customer) - any other outcome, including a network error,
+  // proceeds to the real dashboard rather than blocking on it, since this is cosmetic and the
+  // actual security boundary doesn't depend on this check succeeding.
+  //
+  // Returns the server's actual error text on a 403 - requireCustomer() distinguishes "never set
+  // up as a customer" from "subscription has ended" (a canceled customer past access_ends_at),
+  // and this surfaces whichever one actually applies instead of always showing the generic
+  // never-set-up message.
   async function checkIsCustomer() {
     try {
-      const res = await authedFetch('/api/customer-status');
-      if (!res.ok) return false;
-      const data = await res.json();
-      return !!data.is_customer;
+      const res = await authedFetch('/api/tickets');
+      if (res.status !== 403) return null;
+      const data = await res.json().catch(() => ({}));
+      return data.error || 'Your account isn\'t set up as a customer yet - contact your admin to get set up before you can triage anything.';
     } catch (err) {
-      return false;
+      return null;
     }
   }
 
   async function showForSession(session) {
     if (session) {
-      const isCustomer = await checkIsCustomer();
-      if (!isCustomer) {
+      const blockedReason = await checkIsCustomer();
+      if (blockedReason) {
+        notCustomerMessage.textContent = blockedReason;
         loginScreen.hidden = true;
         notCustomerScreen.hidden = false;
         wrapper.hidden = true;

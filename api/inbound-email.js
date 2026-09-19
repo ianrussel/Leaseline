@@ -5,10 +5,11 @@
 // copy-pasting into dashboard.html required.
 //
 // Deliberately does NOT auto-triage or auto-create a ticket - it only inserts a `pending` row
-// into `tenant_messages` (see supabase/schema.sql). Receiving an email isn't the same as deciding
-// it needs a reply, and AI triage costs a real inference call, so neither should happen just
-// because an email arrived. dashboard.html's inbox shows these rows; a ticket only gets created
-// once the property manager reviews one and clicks "Triage" themselves (api/triage.js).
+// into `tenant_messages` (see supabase/schema.sql) and emails the owner a short notification.
+// Receiving an email isn't the same as deciding it needs a reply, and AI triage costs a real
+// inference call, so neither should happen just because an email arrived. dashboard.html's inbox
+// shows these rows; a ticket only gets created once the property manager reviews one and clicks
+// "Triage" themselves (api/triage.js).
 //
 // Setup (see README.md's "Inbound email" section for the full walkthrough):
 //   1. Resend dashboard -> Emails -> Receiving -> note your <id>.resend.app address (free, no
@@ -24,7 +25,9 @@
 // reproduce them, and svix's HMAC check would fail.
 
 import { Webhook } from "svix";
+import { Resend } from "resend";
 import { supabaseAdmin } from "./_lib/auth.js";
+import { isActive } from "./_lib/billing.js";
 
 export const config = {
   api: {
@@ -40,6 +43,13 @@ export const config = {
 // restricted to only send emails" - the exact failure mode that motivated this split.
 const RESEND_RECEIVING_API_KEY = process.env.RESEND_RECEIVING_API_KEY;
 const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET;
+
+// Sending-only key (same one send-reply.js/analyze-tickets.js use) - separate from
+// RESEND_RECEIVING_API_KEY above on purpose, least-privilege, see that const's own comment.
+// Notifying the property manager that a new tenant message arrived is a real gap otherwise:
+// without this, the only way to find out is to happen to open dashboard.html.
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 function readRawBody(req) {
   // Accumulating Buffer chunks and concatenating once at the end (rather than `body += chunk`)
@@ -66,7 +76,7 @@ async function findCustomerByAddress(toAddress) {
 
   const { data, error } = await supabaseAdmin
     .from("customers")
-    .select("id, owner_user_id")
+    .select("id, owner_user_id, access_ends_at")
     .eq("local_part", localPart)
     .maybeSingle();
 
@@ -74,6 +84,10 @@ async function findCustomerByAddress(toAddress) {
     console.error("inbound-email: failed to look up customer:", error.message);
     return null;
   }
+  // A canceled customer keeps working right up until access_ends_at (cancel-at-period-end, no
+  // immediate cutoff - see schema.sql's comment) - past that, treat them the same as "no customer
+  // at all" rather than piling up tenant_messages nobody will ever triage.
+  if (data && !isActive(data)) return null;
   return data;
 }
 
@@ -177,5 +191,30 @@ export default async function handler(req, res) {
   }
 
   console.log(`inbound-email: saved pending tenant message ${inserted.id} from ${from}`);
+
+  // Best-effort notification, not fatal to the webhook - the message is already saved and
+  // showing in dashboard.html's inbox regardless of whether this email goes out. Same Resend
+  // sandbox restriction already flagged elsewhere in this project applies: onboarding@resend.dev
+  // can only send to the account's own verified email until a real sending domain is verified, so
+  // this will silently fail (logged, not thrown) for any other owner until that's set up.
+  if (resend) {
+    try {
+      const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers();
+      const owner = usersError ? null : usersData.users.find((u) => u.id === customer.owner_user_id);
+      if (owner) {
+        await resend.emails.send({
+          from: "Leaseline <onboarding@resend.dev>", // swap for a verified sending domain once you have one
+          to: owner.email,
+          subject: `Leaseline: new tenant message${subject ? ` - ${subject}` : ""}`,
+          text: `A new tenant message just came in from ${from}:\n\n"${body}"\n\nReview and triage it at your Leaseline dashboard.`,
+        });
+      } else {
+        console.warn(`inbound-email: couldn't resolve owner email for customer ${customer.id} - notification not sent.`);
+      }
+    } catch (err) {
+      console.error(`inbound-email: failed to send owner notification for tenant message ${inserted.id}:`, err.message);
+    }
+  }
+
   res.status(200).json({ ok: true, tenant_message_id: inserted.id });
 }

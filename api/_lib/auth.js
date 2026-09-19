@@ -3,6 +3,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
+import { isActive } from "./billing.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,14 +79,28 @@ export async function requireAdmin(req, res) {
  * endpoint (api/triage.js, api/tickets.js, api/ticket-action.js, api/send-reply.js,
  * api/tenant-messages.js) - deliberately NOT for admin.html's own endpoints, which use
  * requireAdmin instead and have nothing to do with being a customer.
+ *
+ * Admins bypass this check entirely - an admin is never expected to also be a customer (they're
+ * excluded from admin.html's own "eligible owner" dropdown for exactly that reason, see
+ * api/admin-customers.js), but they still need to be able to open dashboard.html - to test the
+ * triage flow, or help a customer troubleshoot - without hitting a "you're not a customer" wall
+ * that was never meant for them in the first place.
+ *
+ * Also rejects a customer whose access has ended (isActive() false - see api/_lib/billing.js and
+ * schema.sql's canceled_at/access_ends_at comment) with a distinct message from "never set up" -
+ * this is the actual enforcement point for cancellation: a canceled customer keeps working
+ * everywhere this gate is used right up until access_ends_at, then every dashboard-facing
+ * endpoint starts rejecting them, same as an account that was never a customer at all.
  */
 export async function requireCustomer(req, res) {
   const user = await requireUser(req, res);
   if (!user) return null; // requireUser already sent the response
 
+  if (user.app_metadata?.role === "admin") return user;
+
   const { data, error } = await supabaseAdmin
     .from("customers")
-    .select("id")
+    .select("id, access_ends_at")
     .eq("owner_user_id", user.id)
     .maybeSingle();
 
@@ -96,6 +111,10 @@ export async function requireCustomer(req, res) {
   }
   if (!data) {
     res.status(403).json({ error: "Your account isn't set up as a customer yet - contact your admin to get set up." });
+    return null;
+  }
+  if (!isActive(data)) {
+    res.status(403).json({ error: "Your subscription has ended - contact your admin to reactivate it." });
     return null;
   }
 

@@ -112,8 +112,56 @@ create table if not exists customers (
   -- The Supabase user (dashboard.html login) who manages this customer's tickets. One owner per
   -- customer for now - a single user managing multiple customers/properties is real future work,
   -- not modeled yet, same "not before it's needed" reasoning as everywhere else in this project.
-  owner_user_id uuid not null references auth.users(id)
+  owner_user_id uuid not null references auth.users(id),
+
+  -- Usage/plan tracking - see api/_lib/billing.js. No real payment processor integrated yet
+  -- (Stripe/LemonSqueezy deferred, see progress.md's Phase 3 notes) - this only tracks and
+  -- displays usage against a plan, it never charges anyone.
+  --
+  -- is_beta + beta_locked_until are separate on purpose: is_beta is the permanent historical
+  -- record of "this customer was brought on as a beta customer"; beta_locked_until is the actual
+  -- date their locked-in BETA_MONTHLY_PRICE_USD reverts to the standard rate - computed ONCE, at
+  -- grant time, as now + BETA_DURATION_MONTHS (api/admin-customers.js), and stored as this fixed
+  -- timestamp rather than always recomputed from BETA_DURATION_MONTHS on the fly. That's what
+  -- makes it safe for the app owner to change BETA_DURATION_MONTHS later without retroactively
+  -- shortening or extending a duration a customer already locked in - only customers granted beta
+  -- AFTER the env var changes are affected. Lets effectivePrice() tell "still within the locked
+  -- period" apart from "was beta, that period's over" without ever having to clear is_beta itself.
+  is_beta boolean not null default false,
+  beta_locked_until timestamptz,
+
+  -- Anchors this customer's monthly usage/billing period - triage usage (see api/_lib/billing.js)
+  -- is counted as `tickets` rows with created_at >= current_period_start, not a separately
+  -- incremented counter, so it's always correct even if computed retroactively. Rolled forward by
+  -- api/billing-reminders.js (daily cron) once a full month has elapsed - not derived on-the-fly
+  -- from created_at, so a customer's billing anchor day doesn't silently drift.
+  current_period_start timestamptz not null default now(),
+
+  -- Set by api/billing-reminders.js once it's sent this period's "your plan renews soon" email -
+  -- prevents sending the same reminder multiple times across repeated daily cron runs within the
+  -- same period, without needing a separate reminders table.
+  last_reminder_sent_at timestamptz,
+
+  -- Cancellation - see api/admin-customers.js's PATCH action and api/_lib/billing.js's isActive().
+  -- Policy: cancel-at-period-end, no refund, no immediate cutoff - a customer already paid for
+  -- their current period, so they keep it in full regardless of usage so far. canceled_at is when
+  -- cancellation was requested (a historical record); access_ends_at is the actual date access
+  -- stops - computed ONCE at cancel time as that period's periodEnd(), same "compute once, store
+  -- it, never recompute" pattern as beta_locked_until, so a customer's access date can't silently
+  -- move if current_period_start were ever touched afterward. Both null means "active, not
+  -- canceled" - the normal state for every customer until someone cancels.
+  canceled_at timestamptz,
+  access_ends_at timestamptz
 );
+
+-- Safe to re-run: adds the columns above if you already created this table before they existed
+-- (same convention as `tickets`' own alter statements above).
+alter table customers add column if not exists is_beta boolean not null default false;
+alter table customers add column if not exists beta_locked_until timestamptz;
+alter table customers add column if not exists current_period_start timestamptz not null default now();
+alter table customers add column if not exists last_reminder_sent_at timestamptz;
+alter table customers add column if not exists canceled_at timestamptz;
+alter table customers add column if not exists access_ends_at timestamptz;
 
 create index if not exists customers_local_part_idx on customers (local_part);
 
