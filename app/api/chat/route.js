@@ -1,0 +1,107 @@
+// Route Handler (any app/**/route.js file becomes an endpoint).
+// POST { message: string } -> { reply: string }
+//
+// Requires an ANTHROPIC_API_KEY environment variable set in the Vercel project settings
+// (Project -> Settings -> Environment Variables). Get one at https://console.anthropic.com/.
+// Without it, every request fails with a clear 500 rather than a silent wrong answer.
+//
+// Optional: set CHAT_LOG_FORMSPREE_ENDPOINT to forward every question+answer pair to a
+// Formspree form (which emails it to you) - the widget has no other storage, so this is how
+// you'd see what visitors are asking without the widget itself showing anything about it.
+// Same account you already used for the waitlist form works - either reuse that endpoint or
+// create a second Formspree form to keep chat logs separate from waitlist signups. Skipped
+// silently (chat still works normally) if the env var isn't set. Formspree's free tier caps
+// submissions per month - each question sends one email, so watch that cap if traffic grows.
+
+import fs from "node:fs";
+import path from "node:path";
+import Anthropic from "@anthropic-ai/sdk";
+import { readJson } from "@/lib/server/http.js";
+
+const client = new Anthropic(); // reads ANTHROPIC_API_KEY from the environment
+const CHAT_LOG_ENDPOINT = process.env.CHAT_LOG_FORMSPREE_ENDPOINT;
+
+async function logChatToEmail(question, answer) {
+  if (!CHAT_LOG_ENDPOINT) return; // optional - silently skipped when not configured
+  try {
+    await fetch(CHAT_LOG_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        _subject: "Leaseline chat: new question", // matches Formspree submission subject shown in your inbox
+        question,
+        answer,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  } catch (err) {
+    // Never let a logging failure affect the visitor's chat response.
+    console.error("Chat log forward failed (non-fatal):", err.message);
+  }
+}
+
+// Read once per cold start, cached across warm invocations of the same instance.
+const KNOWLEDGE_BASE = fs.readFileSync(
+  path.join(process.cwd(), "docs", "knowledge-base.md"),
+  "utf-8",
+);
+
+const SYSTEM_PROMPT = `You are the chat assistant on Leaseline's beta landing page, answering \
+questions from prospective customers (small property managers and landlords).
+
+Answer ONLY using the knowledge base below - it is the single source of truth for what Leaseline \
+is, does, costs, and doesn't do yet. If something isn't covered in it, say plainly that you don't \
+know and point them to ianrussel537@gmail.com rather than guessing or inventing an answer. Never \
+claim a feature, integration, or certification that isn't listed as available in the knowledge base.
+
+If asked something with nothing to do with Leaseline (general trivia, coding help, unrelated \
+requests), politely decline and redirect to what you can actually help with: questions about \
+Leaseline.
+
+Keep answers short - 2 to 4 sentences, plain conversational text, no markdown formatting, no \
+headers or bullet lists unless genuinely listing multiple short items.
+
+=== LEASELINE KNOWLEDGE BASE ===
+${KNOWLEDGE_BASE}`;
+
+export async function POST(request) {
+  const { message } = await readJson(request);
+  if (!message || typeof message !== "string" || !message.trim()) {
+    return Response.json({ error: "Missing 'message' in request body" }, { status: 400 });
+  }
+  if (message.length > 2000) {
+    return Response.json({ error: "Message too long (max 2000 characters)" }, { status: 400 });
+  }
+
+  try {
+    const response = await client.messages.create({
+      model: "claude-opus-5",
+      max_tokens: 512,
+      output_config: { effort: "low" }, // simple FAQ lookup - low effort is the documented sweet spot here
+      system: [
+        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
+      messages: [{ role: "user", content: message.trim() }],
+    });
+
+    const textBlock = response.content.find((b) => b.type === "text");
+    const reply = textBlock ? textBlock.text : "";
+
+    await logChatToEmail(message.trim(), reply);
+
+    return Response.json({ reply });
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) {
+      console.error("Anthropic auth error - check ANTHROPIC_API_KEY in Vercel env vars:", error.message);
+      return Response.json({ error: "The chat assistant isn't configured yet - missing or invalid API key." }, { status: 500 });
+    } else if (error instanceof Anthropic.RateLimitError) {
+      return Response.json({ error: "Getting a lot of questions right now - try again in a moment." }, { status: 429 });
+    } else if (error instanceof Anthropic.APIError) {
+      console.error("Anthropic API error:", error.status, error.message);
+      return Response.json({ error: "The chat assistant is temporarily unavailable - try again shortly." }, { status: 502 });
+    } else {
+      console.error("Unexpected chat handler error:", error);
+      return Response.json({ error: "Something went wrong on our end." }, { status: 500 });
+    }
+  }
+}

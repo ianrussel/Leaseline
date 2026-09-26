@@ -1,20 +1,30 @@
 {
-  "name": "leaseline-landing",
+  "name": "leaseline",
   "private": true,
   "version": "0.1.0",
-  "description": "Leaseline Phase 0 landing page — static site, no build step, plus a serverless chat API.",
+  "description": "Leaseline - AI maintenance triage. Next.js app (landing page, triage dashboard, admin panel) plus Route Handler APIs.",
   "type": "module",
   "scripts": {
-    "dev": "npx --yes serve . -l 3000"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test lib/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
     "@supabase/supabase-js": "^2.45.0",
+    "lucide-react": "^1.48.0",
+    "next": "^16.3.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "resend": "^4.0.0",
     "svix": "^1.42.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
     "vercel": "^59.15.0"
   }
 }
