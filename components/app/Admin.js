@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { authedFetch, isAdmin, useSession } from "@/lib/supabase-client";
 import AppShell from "./AppShell";
 import LoginScreen from "./LoginScreen";
+import { Skeleton, SkeletonRows } from "./Skeleton";
 
 const CATEGORIES = ["Plumbing", "Electrical", "HVAC", "Appliance", "Pest", "Structural", "Noise", "General"];
 const URGENCIES = ["Emergency", "High", "Medium", "Low"];
@@ -22,7 +23,14 @@ export default function Admin() {
     if (session && !admin) router.replace("/dashboard");
   }, [session, admin, router]);
 
-  if (session === undefined) return null;
+  if (session === undefined) {
+    return (
+      <AppShell title="Training review" active="admin" email="" showTrainingReview>
+        <CandidatesSkeleton />
+        <section className="card"><Skeleton className="mb-3 h-6 w-32" /><Skeleton className="h-24" /></section>
+      </AppShell>
+    );
+  }
   if (!session) return <LoginScreen subtitle="Training review - admin only. Sign in to continue." />;
   if (!admin) return null;
 
@@ -57,11 +65,21 @@ function Candidates() {
     load();
   }, [load]);
 
-  if (tickets === null) return <p className="text-sm text-muted">Loading...</p>;
+  if (tickets === null) return <CandidatesSkeleton />;
   if (tickets === false) return <p className="text-sm text-muted">Couldn&apos;t load training candidates.</p>;
   if (!tickets.length) return <p className="text-sm text-muted">No training candidates yet.</p>;
 
   return tickets.map((t) => <CandidateCard key={t.id} ticket={t} onDone={load} />);
+}
+
+function CandidatesSkeleton() {
+  return (
+    <section className="card">
+      <Skeleton className="mb-3 h-4 w-48" />
+      <Skeleton className="mb-3 h-12" />
+      <Skeleton className="h-20" />
+    </section>
+  );
 }
 
 function CandidateCard({ ticket: t, onDone }) {
@@ -229,7 +247,7 @@ function Customers() {
             </tr>
           </thead>
           <tbody>
-            {data === null && <tr><td colSpan={7} className="td text-muted">Loading...</td></tr>}
+            {data === null && <SkeletonRows cols={7} rows={3} />}
             {data === false && <tr><td colSpan={7} className="td text-muted">Couldn&apos;t load customers.</td></tr>}
             {customers && !customers.length && <tr><td colSpan={7} className="td text-muted">No customers yet.</td></tr>}
             {customers?.map((c) => {

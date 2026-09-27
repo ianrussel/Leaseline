@@ -5,6 +5,7 @@ import { authedFetch, getSupabase, isAdmin, useSession } from "@/lib/supabase-cl
 import UrgencyBadge, { CategoryBadge } from "@/components/UrgencyBadge";
 import AppShell from "./AppShell";
 import LoginScreen, { CenteredCard, Wordmark } from "./LoginScreen";
+import { Skeleton, SkeletonRows } from "./Skeleton";
 
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
@@ -22,40 +23,16 @@ async function patchSubscription(action) {
   return res.ok ? { ok: true } : { ok: false, error: data.error || `Request failed (${res.status})` };
 }
 
-// Cosmetic only - shows a clean screen instead of a raw 403 on the first triage attempt. The real
-// enforcement is requireCustomer() (lib/server/auth.js), which every endpoint calls independently,
-// so any outcome other than a 403 (including a network error) just proceeds to the dashboard.
-async function checkIsCustomer() {
-  try {
-    const res = await authedFetch("/api/tickets");
-    if (res.status !== 403) return null;
-    const data = await res.json().catch(() => ({}));
-    return {
-      message:
-        data.error ||
-        "Your account isn't set up as a customer yet - contact your admin to get set up before you can triage anything.",
-      code: data.code || null,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export default function Dashboard() {
   const session = useSession();
-  const [blocked, setBlocked] = useState(undefined); // undefined = checking, null = ok, object = blocked
+  const [blocked, setBlocked] = useState(null); // set by TriageWorkspace when /api/tickets says 403
   const [blockedError, setBlockedError] = useState(null);
+  const [attempt, setAttempt] = useState(0); // bumped to remount the workspace after a renew
 
-  const checkAccess = useCallback(async () => setBlocked(await checkIsCustomer()), []);
-
-  useEffect(() => {
-    if (session) checkAccess();
-    else setBlocked(undefined);
-  }, [session, checkAccess]);
-
-  if (session === undefined) return null;
+  // Session is read from local storage, so this is near-instant - show the page shell with
+  // skeletons meanwhile instead of a blank screen.
+  if (session === undefined) return <AppShell title="Triage" active="triage" email=""><WorkspaceSkeleton /></AppShell>;
   if (!session) return <LoginScreen subtitle="Triage - internal preview. Sign in to continue." />;
-  if (blocked === undefined) return null;
 
   if (blocked) {
     return (
@@ -69,8 +46,11 @@ export default function Dashboard() {
             className="btn-primary mr-2"
             onClick={async () => {
               const r = await patchSubscription("renew");
-              if (r.ok) checkAccess();
-              else setBlockedError(r.error);
+              if (r.ok) {
+                setBlocked(null);
+                setBlockedError(null);
+                setAttempt((n) => n + 1);
+              } else setBlockedError(r.error);
             }}
           >
             Renew subscription
@@ -83,10 +63,23 @@ export default function Dashboard() {
     );
   }
 
-  return <TriageWorkspace session={session} />;
+  return <TriageWorkspace key={attempt} session={session} onBlocked={setBlocked} />;
 }
 
-function TriageWorkspace({ session }) {
+function WorkspaceSkeleton() {
+  return (
+    <>
+      <section className="card"><Skeleton className="mb-3 h-6 w-40" /><Skeleton className="h-16" /></section>
+      <section className="card"><Skeleton className="mb-3 h-6 w-40" /><Skeleton className="h-32" /></section>
+      <section className="card"><Skeleton className="mb-3 h-6 w-40" /><Skeleton className="h-24" /></section>
+    </>
+  );
+}
+
+// A 403 from /api/tickets is exactly what requireCustomer() (lib/server/auth.js) returns for a
+// non-customer or an ended subscription - the real enforcement is server-side on every endpoint;
+// this just swaps in a clean screen instead of a broken dashboard.
+function TriageWorkspace({ session, onBlocked }) {
   const [tickets, setTickets] = useState(null); // null = loading, false = failed
   const [usage, setUsage] = useState(null);
   const [inbox, setInbox] = useState(null);
@@ -112,6 +105,16 @@ function TriageWorkspace({ session }) {
   const loadTickets = useCallback(async () => {
     try {
       const res = await authedFetch("/api/tickets");
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        onBlocked({
+          message:
+            body.error ||
+            "Your account isn't set up as a customer yet - contact your admin to get set up before you can triage anything.",
+          code: body.code || null,
+        });
+        return;
+      }
       if (!res.ok) throw new Error("failed");
       const data = await res.json();
       setTickets(data.tickets);
@@ -119,7 +122,7 @@ function TriageWorkspace({ session }) {
     } catch {
       setTickets(false);
     }
-  }, []);
+  }, [onBlocked]);
 
   const loadIntoWindow = useCallback((item) => {
     setMessage(item.body);
@@ -312,10 +315,9 @@ function TriageWorkspace({ session }) {
         Unauthenticated visitors can&apos;t reach this - not linked from the public site either, on top of the login above.
       </div>
 
-      {inbox && (
-        <section className="card">
+      <section className="card">
           <h3 className="card-title">
-            Tenant inbox <span className={`${chip} ml-1 bg-muted text-surface`}>{inbox.length}</span>
+            Tenant inbox {inbox && <span className={`${chip} ml-1 bg-muted text-surface`}>{inbox.length}</span>}
           </h3>
           <p className="mb-2 text-sm text-muted">
             Emails received automatically, not yet triaged. The oldest one loads into the window below by itself - click
@@ -327,7 +329,7 @@ function TriageWorkspace({ session }) {
                 <tr><th className="th">Received</th><th className="th">From</th><th className="th">Subject</th><th className="th">Preview</th><th className="th" /></tr>
               </thead>
               <tbody>
-                {inbox.length ? inbox.map((item) => (
+                {inbox === null ? <SkeletonRows cols={5} rows={2} /> : inbox.length ? inbox.map((item) => (
                   <tr key={item.id} className="border-t border-line">
                     <td className="td whitespace-nowrap text-muted">{new Date(item.created_at).toLocaleString()}</td>
                     <td className="td">{item.from_email}</td>
@@ -342,7 +344,6 @@ function TriageWorkspace({ session }) {
             </table>
           </div>
         </section>
-      )}
 
       <div className="grid gap-4 lg:grid-cols-[7fr_5fr]">
         <section className="card">
@@ -408,6 +409,9 @@ function TriageWorkspace({ session }) {
         )}
       </div>
 
+      {tickets === null && (
+        <section className="card"><Skeleton className="mb-3 h-6 w-32" /><Skeleton className="h-4" /></section>
+      )}
       {usage && (
         <section className="card">
           <h3 className="card-title !mb-2">Your plan</h3>
@@ -442,7 +446,7 @@ function TriageWorkspace({ session }) {
               <tr><th className="th">#</th><th className="th">When</th><th className="th">Category</th><th className="th">Urgency</th><th className="th">Status</th><th className="th">Message</th><th className="th" /></tr>
             </thead>
             <tbody>
-              {tickets === null && <tr><td colSpan={7} className="td text-muted">Loading...</td></tr>}
+              {tickets === null && <SkeletonRows cols={7} rows={4} />}
               {tickets === false && <tr><td colSpan={7} className="td text-muted">Couldn&apos;t load ticket history.</td></tr>}
               {tickets && !tickets.length && <tr><td colSpan={7} className="td text-muted">No tickets yet.</td></tr>}
               {tickets && tickets.map((t) => {
