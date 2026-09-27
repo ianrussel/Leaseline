@@ -64,5 +64,5 @@ if (updateError) {
 
 console.log(
   `${revoke ? "Revoked" : "Granted"} admin role for ${email} (id: ${user.id}). ` +
-  `They need to sign out and back in on admin.html for it to take effect.`
+  `They need to sign out and back in on the /admin page for it to take effect.`
 );

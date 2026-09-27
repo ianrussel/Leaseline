@@ -41,3 +41,51 @@ Engineering, Full-Stack Development, Product Development
   fine-tuning/data-pipeline bullets to the top of the description.
 - **Full-stack/product roles:** lead title with "Full-Stack Developer" and move the
   Vercel/Supabase/email-pipeline bullets to the top of the description.
+
+---
+
+# LinkedIn Experience Draft - DB Chat AI Agent (MCP)
+
+A separate, real Experience entry - different employer/context than Leaseline. Fill in
+company name, employment type (employee/contractor), and dates yourself; the
+technical content below is verified directly against your own code, not guessed.
+
+- **Company:** *(fill in - the "B&F Papers" / biblioteca client work)*
+- **Employment type:** *(employee or contractor - fill in)*
+- **Title:** pick one depending on the role you're targeting (see variants below)
+
+## Description
+
+Designed and shipped a production AI agent that lets non-technical staff ask
+natural-language questions about a Postgres database, safely, with the LLM
+deciding for itself which tools to call rather than following a fixed script.
+
+- Built a custom MCP (Model Context Protocol) server exposing three tools
+  (`list_tables`, `describe_table`, `run_query`) to an LLM agent - the model
+  autonomously decides which to call and when, inspecting a table's schema before
+  querying it rather than following a hardcoded sequence
+- Used Anthropic's Tool Runner to drive the actual agent loop (plan → call a tool →
+  read the result → decide the next step → repeat) rather than a single one-shot
+  prompt/response - the model, not application code, controls what happens next
+- Designed a multi-provider architecture (Anthropic, OpenAI, Gemini) behind one
+  interface, so the same agent runs on any of the three depending on configuration
+- Enforced defense-in-depth safety on an agent with real database access: a SQL
+  guard restricting it to single, read-only SELECT statements, backed independently
+  by a dedicated read-only database role - so even a bypassed guard still can't
+  write to the database
+- Deployed as an async Celery task with full audit logging (question asked,
+  generated SQL, row count) behind a Django view - a real production feature, not a
+  prototype
+
+## Skills
+
+Python, AI Agents, Agentic AI, Model Context Protocol (MCP), Anthropic API, Tool
+Use / Function Calling, LLM Orchestration, Django, Celery, PostgreSQL, SQL,
+Multi-Provider LLM Architecture, Production AI Systems
+
+## Title variants by target role
+
+- **AI/agentic-AI roles:** lead title with "AI Engineer" and lead the description
+  with the MCP/tool-calling/agent-loop bullets (already first above).
+- **Backend/platform roles:** lead title with "Backend Engineer" and move the
+  Celery/Django/audit-logging/multi-provider-architecture bullets to the top.

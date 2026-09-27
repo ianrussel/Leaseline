@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/* One palette for the whole product - the landing page's original colors, now shared by the
+   dashboard and admin pages too (they used to run on a separate Bootstrap admin theme). Raw values
+   live on :root so dark mode can swap them; @theme inline exposes them as Tailwind utilities
+   (bg-surface, text-muted, border-line, bg-accent, ...). */
+:root {
+  --bg: #e7eae4;
+  --surface: #f6f7f2;
+  --surface-2: #ffffff;
+  --text: #17242b;
+  --text-muted: #5b665e;
+  --border: #c7cfc5;
+  --accent: #2b6e68;
+  --accent-hover: #1f5652;
+  --accent-contrast: #f6f7f2;
+  --danger: #b23a2a;
+  --warning: #c97a2b;
+  --success: #3f7d4f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12191a;
+    --surface: #1a2325;
+    --surface-2: #202b2d;
+    --text: #e7ebe6;
+    --text-muted: #9ca8a0;
+    --border: #2e3a3b;
+    --accent: #4e9c93;
+    --accent-hover: #63b0a7;
+    --accent-contrast: #0e1516;
+    --danger: #e0705f;
+    --warning: #e0a060;
+    --success: #6fb482;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12191a;
+  --surface: #1a2325;
+  --surface-2: #202b2d;
+  --text: #e7ebe6;
+  --text-muted: #9ca8a0;
+  --border: #2e3a3b;
+  --accent: #4e9c93;
+  --accent-hover: #63b0a7;
+  --accent-contrast: #0e1516;
+  --danger: #e0705f;
+  --warning: #e0a060;
+  --success: #6fb482;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  /* Urgency colors are identical in both themes on purpose - each pair was picked for contrast
+     against itself, not against the page background. */
+  --color-urgency-emergency: #b23a2a;
+  --color-urgency-emergency-fg: #f8ede9;
+  --color-urgency-high: #c97a2b;
+  --color-urgency-high-fg: #1c130a;
+  --color-urgency-medium: #b99a2e;
+  --color-urgency-medium-fg: #1c1608;
+  --color-urgency-low: #5a6e8c;
+  --color-urgency-low-fg: #eef1f6;
+
+  /* Set by next/font in app/layout.js. */
+  --font-display: var(--font-big-shoulders), "Arial Narrow", sans-serif;
+  --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, Menlo, monospace;
+}
+
+@layer base {
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+  a {
+    color: var(--accent);
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  /* Shared form-control look - used enough (login, triage, admin forms) to be worth one class
+     instead of repeating the same dozen utilities on every input. */
+  .field-input {
+    @apply w-full border border-line bg-surface-2 px-3 py-2 text-[15px] text-ink placeholder:text-muted/70 focus:outline-2 focus:outline-offset-1 focus:outline-accent disabled:opacity-60;
+  }
+  .field-label {
+    @apply mb-1.5 block font-mono text-xs tracking-wide text-muted;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-accent px-4 py-2 font-mono text-sm font-semibold text-accent-contrast hover:bg-accent-hover disabled:opacity-60;
+  }
+  .btn-outline {
+    @apply border border-line px-3 py-1.5 font-mono text-xs font-semibold text-ink hover:bg-surface-2 disabled:opacity-60;
+  }
+  .menu-item {
+    @apply block w-full px-4 py-2 text-left text-sm text-ink hover:bg-surface;
+  }
+  .card {
+    @apply border border-line bg-surface p-5;
+  }
+  .card-title {
+    @apply mb-3 text-lg font-semibold;
+  }
+  .th {
+    @apply px-2 py-1.5 text-left font-mono text-xs font-normal text-muted;
+  }
+  .td {
+    @apply px-2 py-1.5 align-middle text-sm;
+  }
+}

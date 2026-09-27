@@ -168,3 +168,15 @@ create index if not exists customers_local_part_idx on customers (local_part);
 -- Same defense-in-depth reasoning as tickets/tenant_messages above - only ever touched via
 -- service_role from server-side API routes.
 alter table customers enable row level security;
+
+-- Cooldown state for api/_lib/alerts.js's alertAdmin() - one row per alert `key` (e.g.
+-- "hf-endpoint-down"), so a sustained outage emails ADMIN_EMAIL once per COOLDOWN_MS instead of
+-- once per failed request. Needs to be a real table, not an in-memory timestamp in alerts.js,
+-- because separate serverless invocations don't share memory.
+create table if not exists system_alerts (
+  key text primary key,
+  last_sent_at timestamptz not null
+);
+
+-- Same defense-in-depth reasoning as the tables above - only ever touched via service_role.
+alter table system_alerts enable row level security;
