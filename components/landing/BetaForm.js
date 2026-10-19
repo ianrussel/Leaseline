@@ -6,7 +6,7 @@ import { useState } from "react";
 // Manage/export them at https://formspree.io/forms
 const FORM_ENDPOINT = "https://formspree.io/f/mjyvaqqb";
 
-const UNITS = ["1–10", "11–50", "51–200", "200+"];
+const UNITS = ["1-10", "11-50", "51-200", "200+"];
 const METHODS = ["Text or email", "Property management software", "Paper or phone calls", "Other"];
 
 export default function BetaForm({ fallbackEmail }) {
